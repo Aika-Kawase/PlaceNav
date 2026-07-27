@@ -40,7 +40,8 @@ services:
         source: apt-cache-apt-archives
         target: /var/cache/apt/archives
     tty: true
-    command: /home/user/ws/src/PlaceNav/.devcontainer/placenav-bootstrap.sh /bin/bash
+    stdin_open: true
+    command: /home/user/ws/src/PlaceNav/.devcontainer/placenav-bootstrap.sh /bin/bash -i
     deploy:
       resources:
         reservations:
