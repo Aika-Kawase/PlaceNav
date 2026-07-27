@@ -1,0 +1,56 @@
+services:
+  ros-noetic-docker-ws:
+    build:
+      context: .. 
+      dockerfile: .devcontainer/Dockerfile.whill
+      args:
+        - ROS_DISTRO=noetic
+    working_dir: /home/user/ws
+    network_mode: "host"
+    privileged: true
+    environment:
+      - DISPLAY=${DISPLAY}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - __NV_PRIME_RENDER_OFFLOAD=1
+      - __GLX_VENDOR_LIBRARY_NAME=nvidia
+    volumes:
+      - type: bind
+        source: /tmp/.X11-unix
+        target: /tmp/.X11-unix
+      - type: bind
+        source: /dev/dri
+        target: /dev/dri
+      - type: bind
+        source: ..
+        target: /home/user/ws/src
+      - type: bind
+        source: ../../cache/noetic/build
+        target: /home/user/ws/build
+      - type: bind
+        source: ../../cache/noetic/install
+        target: /home/user/ws/install
+      - type: bind
+        source: ../../cache/noetic/log
+        target: /home/user/ws/log
+      - type: volume
+        source: apt-cache-apt-lists
+        target: /var/lib/apt/lists
+      - type: volume
+        source: apt-cache-apt-archives
+        target: /var/cache/apt/archives
+    tty: true
+    command: /home/user/ws/src/PlaceNav/.devcontainer/placenav-bootstrap.sh /bin/bash
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  apt-cache-apt-lists:
+    name: ros-noetic-apt-cache-apt-lists
+  apt-cache-apt-archives:
+    name: ros-noetic-apt-cache-apt-archives
