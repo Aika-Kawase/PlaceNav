@@ -15,7 +15,7 @@ RUN apt-get install -y --no-install-recommends ros-${ROS_DISTRO}-desktop ros-${R
 RUN rm -rf /etc/apt/apt.conf.d/docker-clean
 
 # PlaceNav Python runtime (including the pinned CUDA 11.3 PyTorch wheels).
-COPY PlaceNav/requirements.txt /tmp/placenav-requirements.txt
+COPY requirements.txt /tmp/placenav-requirements.txt
 RUN python3 -m pip install --no-cache-dir -r /tmp/placenav-requirements.txt --extra-index-url https://download.pytorch.org/whl/cu113
 ENV SHELL /bin/bash
 
