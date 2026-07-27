@@ -150,3 +150,42 @@ year      = {2024},
 url       = {https://arxiv.org/abs/2309.17260},
 }
 ```
+
+## Reproducible ROS Noetic container workspace
+
+To create a separate workspace for PlaceNav development, use the following commands. The SSH clone URL is recommended after configuring an SSH key for GitHub.
+
+```bash
+mkdir -p ~/rwrc26_ws/src
+cd ~/rwrc26_ws/src
+
+git clone git@github.com:Aika-Kawase/PlaceNav.git
+cd ~/rwrc26_ws/src/PlaceNav
+
+git switch feature/tsukuba-challenge-ros1
+# If tracking is not created automatically:
+# git switch -c feature/tsukuba-challenge-ros1 --track origin/feature/tsukuba-challenge-ros1
+
+git remote -v
+git branch -vv
+git status
+git log -1 --oneline
+```
+
+The expected repository and branch are:
+
+```text
+origin  git@github.com:Aika-Kawase/PlaceNav.git
+* feature/tsukuba-challenge-ros1
+```
+
+Validate and build the container from the cloned repository:
+
+```bash
+docker compose -f .devcontainer/docker-compose.yml config
+mkdir -p ~/rwrc26_ws/src/cache/noetic/{build,install,log}
+docker compose -f .devcontainer/docker-compose.yml build
+docker compose -f .devcontainer/docker-compose.yml up
+```
+
+The `.devcontainer` configuration installs the PlaceNav Python dependencies and prepares the GNM/CosPlace weights and `gnm_train` helper repository when the container starts. Model weights and generated topological-map data remain outside Git and are stored in the workspace volume.
