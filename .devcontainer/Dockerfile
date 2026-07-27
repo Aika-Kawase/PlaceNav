@@ -16,7 +16,7 @@ RUN rm -rf /etc/apt/apt.conf.d/docker-clean
 
 # PlaceNav Python runtime (including the pinned CUDA 11.3 PyTorch wheels).
 COPY requirements.txt /tmp/placenav-requirements.txt
-RUN printf 'typing-extensions<4.15\n' > /tmp/placenav-constraints.txt \
+RUN printf 'typing-extensions==4.13.2\n' > /tmp/placenav-constraints.txt \
     && python3 -m pip install --no-cache-dir -c /tmp/placenav-constraints.txt -r /tmp/placenav-requirements.txt --extra-index-url https://download.pytorch.org/whl/cu113
 ENV SHELL /bin/bash
 
