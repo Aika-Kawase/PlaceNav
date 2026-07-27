@@ -2,7 +2,7 @@ services:
   ros-noetic-docker-ws:
     build:
       context: .. 
-      dockerfile: .devcontainer/Dockerfile.whill
+      dockerfile: .devcontainer/Dockerfile
       args:
         - ROS_DISTRO=noetic
     working_dir: /home/user/ws
