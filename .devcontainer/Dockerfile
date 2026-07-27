@@ -19,6 +19,8 @@ COPY requirements.txt /tmp/placenav-requirements.txt
 RUN printf 'typing-extensions==4.13.2\n' > /tmp/placenav-constraints.txt \
     && python3 -m pip install --no-cache-dir -c /tmp/placenav-constraints.txt -r /tmp/placenav-requirements.txt --extra-index-url https://download.pytorch.org/whl/cu113
 ENV SHELL /bin/bash
+ENV PATH="/home/user/.local/bin:$PATH"
+ENV PYTHONPATH="/home/user/ws/src/PlaceNav/src:$PYTHONPATH"
 
 USER $USERNAME
 RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc
