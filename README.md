@@ -189,3 +189,26 @@ docker compose -f .devcontainer/docker-compose.yml up
 ```
 
 The `.devcontainer` configuration installs the PlaceNav Python dependencies and prepares the GNM/CosPlace weights and `gnm_train` helper repository when the container starts. Model weights and generated topological-map data remain outside Git and are stored in the workspace volume.
+
+### Starting and entering the container
+
+After the initial image build, recreate and start the container in the first terminal:
+
+```bash
+docker compose -f .devcontainer/docker-compose.yml up --force-recreate
+```
+
+When startup output stops, use a second terminal to confirm that the service is still running:
+
+```bash
+cd ~/rwrc26_ws/src/PlaceNav
+docker compose -f .devcontainer/docker-compose.yml ps
+```
+
+The service status must be `Up`. In the first terminal, press `d` to detach while keeping the container running. Then enter the running container from the second terminal:
+
+```bash
+docker compose -f .devcontainer/docker-compose.yml exec ros-noetic-docker-ws bash
+```
+
+Alternatively, start directly in the background with `-d` and then use the same `ps` and `exec` commands.
