@@ -41,7 +41,7 @@ services:
         target: /var/cache/apt/archives
     tty: true
     stdin_open: true
-    command: /home/user/ws/src/PlaceNav/.devcontainer/placenav-bootstrap.sh /bin/bash -i
+    command: /home/user/ws/src/.devcontainer/placenav-bootstrap.sh /bin/bash -i
     deploy:
       resources:
         reservations:
