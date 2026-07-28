@@ -19,6 +19,7 @@ COPY requirements.txt /tmp/placenav-requirements.txt
 RUN printf 'typing-extensions==4.13.2\n' > /tmp/placenav-constraints.txt \
     && python3 -m pip install --no-cache-dir -c /tmp/placenav-constraints.txt -r /tmp/placenav-requirements.txt --extra-index-url https://download.pytorch.org/whl/cu113
 ENV SHELL /bin/bash
+RUN mkdir -p /home/user/ws/third_party /home/user/ws/src \n    && chown -R $USERNAME:$USERNAME /home/user/ws
 ENV PATH="/home/user/.local/bin:$PATH"
 ENV PYTHONPATH="/home/user/ws/src/PlaceNav/src:$PYTHONPATH"
 
