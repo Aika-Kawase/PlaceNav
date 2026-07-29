@@ -21,8 +21,11 @@ RUN printf 'typing-extensions==4.13.2\n' > /tmp/placenav-constraints.txt \
 ENV SHELL /bin/bash
 RUN mkdir -p /home/user/ws/third_party /home/user/ws/src \
     && chown -R $USERNAME:$USERNAME /home/user/ws
+COPY src/placenav_viz_msgs/src /tmp/placenav_viz_msgs_ws/src
+RUN /bin/bash -c "source /opt/ros/noetic/setup.bash && cd /tmp/placenav_viz_msgs_ws && catkin_make"
+RUN cp -a /tmp/placenav_viz_msgs_ws/devel /opt/placenav_viz_msgs_devel
 ENV PATH="/home/user/.local/bin:$PATH"
-ENV PYTHONPATH="/home/user/ws/src/PlaceNav/src:$PYTHONPATH"
+ENV PYTHONPATH="/home/user/ws/src/PlaceNav/src:/opt/placenav_viz_msgs_devel/lib/python3/dist-packages:$PYTHONPATH"
 
 USER $USERNAME
 RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc
