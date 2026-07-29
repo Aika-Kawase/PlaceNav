@@ -23,7 +23,7 @@ services:
         target: /dev/dri
       - type: bind
         source: ..
-        target: /home/user/ws/src
+        target: /home/user/ws/src/PlaceNav
       - type: bind
         source: ../../cache/noetic/build
         target: /home/user/ws/build
@@ -41,7 +41,7 @@ services:
         target: /var/cache/apt/archives
     tty: true
     stdin_open: true
-    command: /home/user/ws/src/.devcontainer/placenav-bootstrap.sh /bin/bash -i
+    command: /home/user/ws/src/PlaceNav/.devcontainer/placenav-bootstrap.sh /bin/bash -i
     deploy:
       resources:
         reservations:
