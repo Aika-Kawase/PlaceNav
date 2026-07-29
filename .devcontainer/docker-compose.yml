@@ -14,6 +14,8 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=all
       - __NV_PRIME_RENDER_OFFLOAD=1
       - __GLX_VENDOR_LIBRARY_NAME=nvidia
+      - ROS_MASTER_URI=http://192.168.1.146:11311
+      - ROS_IP=192.168.1.146
     volumes:
       - type: bind
         source: /tmp/.X11-unix
@@ -49,6 +51,7 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+
 
 volumes:
   apt-cache-apt-lists:
