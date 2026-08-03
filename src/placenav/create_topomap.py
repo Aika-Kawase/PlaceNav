@@ -22,6 +22,7 @@ class TopomapGeneratorNode:
         self.latest_odometry = None
         self.obs_odometry = None
         self.previous_odometry = None
+        self.last_saved_odometry = None
         self.traj_data = {'position': [], 'yaw': [], 'relative_position': [], 'relative_yaw': []}
 
         with args.robot_config_path.open(mode="r", encoding="utf-8") as f:
@@ -45,7 +46,12 @@ class TopomapGeneratorNode:
         self.odom_sub = rospy.Subscriber(self.odometry_topic, Odometry, self.callback_odometry)
 
         assert args.dt > 0, "dt must be positive"
-        self.rate = rospy.Rate(1/args.dt)
+        self.sampling_mode = args.sampling_mode
+        self.straight_distance = args.straight_distance
+        self.turn_distance = args.turn_distance
+        self.yaw_threshold = args.yaw_threshold
+        self.min_distance = args.min_distance
+        self.rate = rospy.Rate(10.0 if self.sampling_mode == "adaptive" else 1/args.dt)
         rospy.loginfo("Registered with master node. Waiting for images...")
 
     def remove_files_in_dir(self, dir_path):
@@ -73,7 +79,7 @@ class TopomapGeneratorNode:
 
     def main_loop(self):
         i = 0
-        start_time = float("inf")
+        last_image_time = time.time()
         while not rospy.is_shutdown():
             if self.obs_img is not None:
                 odometry = copy.deepcopy(self.obs_odometry)
@@ -83,6 +89,23 @@ class TopomapGeneratorNode:
                 else:
                     pose_delta = to_local_coords(odometry, self.previous_odometry, self.previous_odometry[2]).astype(float)
                 self.previous_odometry = copy.deepcopy(odometry)
+                last_image_time = time.time()
+                save_image = self.last_saved_odometry is None
+                if not save_image and self.sampling_mode == "time":
+                    save_image = True
+                elif not save_image:
+                    delta = to_local_coords(odometry, self.last_saved_odometry,
+                                            self.last_saved_odometry[2]).astype(float)
+                    distance = float(np.linalg.norm(delta[:2]))
+                    yaw_delta = abs(float(delta[2]))
+                    threshold = (self.turn_distance if yaw_delta >= self.yaw_threshold
+                                 else self.straight_distance)
+                    save_image = (distance >= self.min_distance and
+                                  (distance >= threshold or yaw_delta >= self.yaw_threshold))
+                if not save_image:
+                    self.obs_img = None
+                    self.rate.sleep()
+                    continue
 
                 self.traj_data['position'].append(odometry[:2])
                 self.traj_data['yaw'].append(odometry[2])
@@ -97,9 +120,9 @@ class TopomapGeneratorNode:
                 rospy.loginfo(f"published image {i}")
                 i += 1
                 self.rate.sleep()
-                start_time = time.time()
+                self.last_saved_odometry = copy.deepcopy(odometry)
                 self.obs_img = None
-            if time.time() - start_time > 2 * args.dt:
+            if time.time() - last_image_time > 2 * args.dt:
                 rospy.loginfo(f"Topic {self.image_topic} not publishing anymore. Shutting down...")
                 rospy.signal_shutdown("shutdown")
 
@@ -134,6 +157,11 @@ def parse_args():
         type=float,
         help=f"time between sampled images (default: 3.0)",
     )
+    parser.add_argument("--sampling-mode", choices=["time", "adaptive"], default="time")
+    parser.add_argument("--straight-distance", type=float, default=3.0)
+    parser.add_argument("--turn-distance", type=float, default=0.15)
+    parser.add_argument("--yaw-threshold", type=float, default=0.12)
+    parser.add_argument("--min-distance", type=float, default=0.10)
     parser.add_argument(
         "--topomap_directory",
         type=Path,

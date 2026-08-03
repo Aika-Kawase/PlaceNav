@@ -24,4 +24,9 @@ exec python3 "${SCRIPT_DIR}/placenav/create_topomap.py" \
     --robot_config_path "${ROBOT_CONFIG}" \
     --route_name "$1" \
     --dt "$2" \
+    --sampling-mode adaptive \
+    --straight-distance 3.0 \
+    --turn-distance 0.15 \
+    --yaw-threshold 0.12 \
+    --min-distance 0.10 \
     --topomap_directory "${TOPOMAP_DIR}"
