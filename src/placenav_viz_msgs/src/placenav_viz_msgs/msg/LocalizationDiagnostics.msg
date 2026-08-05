@@ -1,0 +1,11 @@
+time query_timestamp
+uint32 current_node_idx
+uint32 subgoal_idx
+uint32 cosplace_top1_node_idx
+uint32 cosplace_top2_node_idx
+float32 cosplace_top1_score
+float32 cosplace_top2_score
+float32 cosplace_score_margin
+float32 bayesian_belief_max
+float32 bayesian_belief_std
+float32 bayesian_belief_entropy

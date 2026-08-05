@@ -18,6 +18,7 @@ turtlebot:
   reached_goal_topic: "/toponav/reached_goal"
   stop_topic: "/toponav/stop"
   toponav_viz_info_topic: "/toponav/viz_info"
+  localization_diagnostics_topic: "/toponav/localization_diagnostics"
 
 # WHILL used for the Tsukuba Challenge integration.
 #
@@ -41,6 +42,7 @@ whill:
   reached_goal_topic: "/toponav/reached_goal"
   stop_topic: "/toponav/stop"
   toponav_viz_info_topic: "/toponav/viz_info"
+  localization_diagnostics_topic: "/toponav/localization_diagnostics"
 
   safety:
     nominal_cmd_topic: "/cmd_vel_nominal"
