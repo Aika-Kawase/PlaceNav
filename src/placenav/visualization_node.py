@@ -38,7 +38,7 @@ class TopoNavVisualizationNode:
         topomap_img_dir = args.topomap_base_dir / args.topomap_dir
         place_recognition_db_path = topomap_img_dir / f"global-feats-{args.pr_model}.h5"
         
-        self._obs_buffer_size = 10
+        self._obs_buffer_size = 100
         self._obs_buffer: Dict[Int32, Image] = {}
         self._subgoal_idx = None
         self._query_timestamp = None
@@ -202,7 +202,23 @@ class TopoNavVisualizationNode:
                             # Get the latest observation
                             latest_obs_msg = self._obs_buffer[next(iter(reversed(self._obs_buffer)))]
                             # Get the latest query image
-                            query_obs_msg = self._obs_buffer[self._query_timestamp]
+                            # Viz stores the source image timestamp.  With rosbag/image_transport
+                            # replay, the timestamp can differ by a few milliseconds, so use the
+                            # nearest buffered image instead of requiring an exact float key.
+                            query_key = min(
+                                self._obs_buffer,
+                                key=lambda stamp: abs(stamp - self._query_timestamp),
+                            )
+                            query_error = abs(query_key - self._query_timestamp)
+                            if query_error > 0.5:
+                                rospy.logwarn_throttle(5.0,
+                                    "No camera image near viz timestamp (error %.3fs); skipping",
+                                    query_error)
+                                self._subgoal_idx = None
+                                self._query_timestamp = None
+                                self._waypoints = None
+                                continue
+                            query_obs_msg = self._obs_buffer[query_key]
 
                         # Get the topomap image corresponding to the query image
                         subgoal_img = self._topomap_images[self._subgoal_idx]
