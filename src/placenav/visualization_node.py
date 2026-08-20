@@ -23,7 +23,7 @@ from vidgear.gears import WriteGear
 import placenav
 from placenav.place_recognition.gallery_db import PlaceRecognitionDBHandler
 from utils import project_waypoint, bridge
-from placenav_viz_msgs.msg import Viz
+from placenav_viz_msgs.msg import Viz, LocalizationDiagnostics
 
 
 class TopoNavVisualizationNode:
@@ -38,10 +38,11 @@ class TopoNavVisualizationNode:
         topomap_img_dir = args.topomap_base_dir / args.topomap_dir
         place_recognition_db_path = topomap_img_dir / f"global-feats-{args.pr_model}.h5"
         
-        self._obs_buffer_size = 10
+        self._obs_buffer_size = 100
         self._obs_buffer: Dict[Int32, Image] = {}
         self._subgoal_idx = None
         self._query_timestamp = None
+        self._diagnostics_buffer = {}
 
         # Load the robot config
         with args.robot_config_path.open(mode="r", encoding="utf-8") as f:
@@ -131,6 +132,12 @@ class TopoNavVisualizationNode:
             self._topomap_viz_info_callback,
             queue_size=10,
         )
+        localization_diagnostics_sub = rospy.Subscriber(
+            self.robot_config['localization_diagnostics_topic'],
+            LocalizationDiagnostics,
+            self._localization_diagnostics_callback,
+            queue_size=10,
+        )
         self.stop_pub = rospy.Publisher(
             self.robot_config['stop_topic'],
             Bool,
@@ -150,6 +157,24 @@ class TopoNavVisualizationNode:
             self._subgoal_idx = msg.subgoal_idx
             self._query_timestamp = msg.query_timestamp.to_sec()
             self._waypoints = msg.waypoints
+
+    def _localization_diagnostics_callback(self, msg: LocalizationDiagnostics):
+        timestamp = msg.query_timestamp.to_sec()
+        with self._info_lock:
+            if len(self._diagnostics_buffer) > self._obs_buffer_size:
+                del self._diagnostics_buffer[next(iter(self._diagnostics_buffer))]
+            self._diagnostics_buffer[timestamp] = {
+                "current_node_idx": msg.current_node_idx,
+                "subgoal_idx": msg.subgoal_idx,
+                "cosplace_top1_node_idx": msg.cosplace_top1_node_idx,
+                "cosplace_top2_node_idx": msg.cosplace_top2_node_idx,
+                "cosplace_top1_score": msg.cosplace_top1_score,
+                "cosplace_top2_score": msg.cosplace_top2_score,
+                "cosplace_score_margin": msg.cosplace_score_margin,
+                "bayesian_belief_max": msg.bayesian_belief_max,
+                "bayesian_belief_std": msg.bayesian_belief_std,
+                "bayesian_belief_entropy": msg.bayesian_belief_entropy,
+            }
 
     def _overlay_waypoints(self, img, waypoints):
 
@@ -202,11 +227,30 @@ class TopoNavVisualizationNode:
                             # Get the latest observation
                             latest_obs_msg = self._obs_buffer[next(iter(reversed(self._obs_buffer)))]
                             # Get the latest query image
-                            query_obs_msg = self._obs_buffer[self._query_timestamp]
+                            # Viz stores the source image timestamp.  With rosbag/image_transport
+                            # replay, the timestamp can differ by a few milliseconds, so use the
+                            # nearest buffered image instead of requiring an exact float key.
+                            query_key = min(
+                                self._obs_buffer,
+                                key=lambda stamp: abs(stamp - self._query_timestamp),
+                            )
+                            query_error = abs(query_key - self._query_timestamp)
+                            if query_error > 0.5:
+                                rospy.logwarn_throttle(5.0,
+                                    "No camera image near viz timestamp (error %.3fs); skipping",
+                                    query_error)
+                                self._subgoal_idx = None
+                                self._query_timestamp = None
+                                self._waypoints = None
+                                continue
+                            query_obs_msg = self._obs_buffer[query_key]
 
                         # Get the topomap image corresponding to the query image
                         subgoal_img = self._topomap_images[self._subgoal_idx]
                         waypoints = deepcopy(self._waypoints)
+                        diagnostics = deepcopy(
+                            self._diagnostics_buffer.get(self._query_timestamp)
+                        )
 
                         # Make sure we don't use the same query image again
                         self._subgoal_idx = None
@@ -224,6 +268,20 @@ class TopoNavVisualizationNode:
                     # Add text to the images
                     cv2.putText(subgoal_img, 'Subgoal', (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2, cv2.LINE_AA)
                     cv2.putText(query_obs_img, 'Query', (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
+                    if diagnostics is not None:
+                        lines = [
+                            f"current={diagnostics['current_node_idx']}  subgoal={diagnostics['subgoal_idx']}",
+                            f"CosPlace: {diagnostics['cosplace_top1_node_idx']}={diagnostics['cosplace_top1_score']:.3f}  "
+                            f"{diagnostics['cosplace_top2_node_idx']}={diagnostics['cosplace_top2_score']:.3f}  "
+                            f"margin={diagnostics['cosplace_score_margin']:.3f}",
+                            f"Bayes: max={diagnostics['bayesian_belief_max']:.3f}  "
+                            f"std={diagnostics['bayesian_belief_std']:.2f} nodes  "
+                            f"entropy={diagnostics['bayesian_belief_entropy']:.3f}",
+                        ]
+                        for line_idx, line in enumerate(lines):
+                            cv2.putText(query_obs_img, line, (15, 85 + 28 * line_idx),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.55,
+                                        (0, 255, 0), 2, cv2.LINE_AA)
 
                     # Add borders to the images
                     subgoal_img = cv2.copyMakeBorder(subgoal_img,5,5,5,5,cv2.BORDER_CONSTANT,value=[0,0,0])

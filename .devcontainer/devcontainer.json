@@ -1,0 +1,23 @@
+{
+  "name": "PlaceNav ROS1 Container",
+  "dockerComposeFile": "docker-compose.whill.yml",
+  "service": "ros-noetic-docker-ws",
+  "workspaceFolder": "/home/user/ws",
+  "customizations": {
+      "vscode": {
+          "extensions":[
+              "ms-vscode.cpptools",
+              "ms-vscode.cpptools-themes",
+              "ms-vscode.cpptools-extension-pack",
+              "ms-python.python",
+              "ms-python.black-formatter",
+              "ms-python.isort",
+              "ms-python.flake8",
+              "ms-python.mypy-type-checker",
+              "ms-vscode.cmake-tools",
+              "ms-iot.vscode-ros",
+              "ms-azuretools.vscode-docker"
+          ]
+      }
+  }
+}

@@ -1,5 +1,6 @@
 import numpy as np
 import yaml
+import time
 from typing import Tuple
 import argparse
 from pathlib import Path
@@ -10,9 +11,11 @@ from geometry_msgs.msg import Twist
 from std_msgs.msg import Float32MultiArray, Bool
 
 class PDControllerNode:
-    def __init__(self, robot: str, robot_config_path: Path):
+    def __init__(self, robot: str, robot_config_path: Path, waypoint_timeout: float):
         self.vel_msg = Twist()
         self.reached_goal = False
+        self.waypoint_timeout = waypoint_timeout
+        self.last_waypoint_time = None
 
         with robot_config_path.open(mode="r", encoding="utf-8") as f:
             robot_configs = yaml.safe_load(f)
@@ -30,6 +33,7 @@ class PDControllerNode:
         self.stop_sub = rospy.Subscriber(robot_config['stop_topic'], Bool, self.callback_stop, queue_size=1)
         self.vel_out = rospy.Publisher(robot_config["vel_navi_topic"], Twist, queue_size=1)
         self.rate = rospy.Rate(self.RATE)
+        rospy.on_shutdown(self.publish_stop)
         rospy.loginfo("Registered with master node. Waiting for waypoints...")
 
     def clip_angle(self, theta) -> float:
@@ -69,6 +73,7 @@ class PDControllerNode:
         self.vel_msg = Twist()
         self.vel_msg.linear.x = v
         self.vel_msg.angular.z = w
+        self.last_waypoint_time = time.monotonic()
         rospy.loginfo("publishing new vel")
 
     def callback_stop(self, stop_msg: Bool):
@@ -82,12 +87,23 @@ class PDControllerNode:
         """Callback function for the reached goal subscriber"""
         self.reached_goal = reached_goal_msg.data
 
+    def publish_stop(self):
+        self.vel_msg = Twist()
+        for _ in range(3):
+            self.vel_out.publish(self.vel_msg)
+            time.sleep(0.02)
+
     def main_loop(self):
         while not rospy.is_shutdown():
+            if (
+                self.last_waypoint_time is None or
+                time.monotonic() - self.last_waypoint_time > self.waypoint_timeout
+            ):
+                self.vel_msg = Twist()
+                rospy.logwarn_throttle(2.0, "Waypoint input timed out; publishing zero velocity")
             self.vel_out.publish(self.vel_msg)
             if self.reached_goal:
-                self.vel_msg = Twist()
-                self.vel_out.publish(self.vel_msg)
+                self.publish_stop()
                 rospy.loginfo("Reached goal! Stopping...")
                 return
             self.rate.sleep()
@@ -109,7 +125,16 @@ if __name__ == '__main__':
         required=True,
         help="path to config of the robot to control",
     )
+    parser.add_argument(
+        "--waypoint-timeout",
+        type=float,
+        default=0.75,
+        help="publish zero when no waypoint arrives for this many seconds",
+    )
     args = parser.parse_args()
 
-    pd_controller_node = PDControllerNode(args.robot, args.robot_config_path)
+    if args.waypoint_timeout <= 0:
+        parser.error("--waypoint-timeout must be positive")
+
+    pd_controller_node = PDControllerNode(args.robot, args.robot_config_path, args.waypoint_timeout)
     pd_controller_node.main_loop()

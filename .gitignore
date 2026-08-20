@@ -143,3 +143,5 @@ dmypy.json
 
 # OSX files
 .DS_Store
+# Recorded ROS bags
+bag/*.bag

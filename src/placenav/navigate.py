@@ -24,7 +24,7 @@ import parser
 from utils import to_numpy, load_model, read_image, get_image_transform, waypoints_to_ros_msg, bridge
 
 # Visualization
-from placenav_viz_msgs.msg import Viz
+from placenav_viz_msgs.msg import Viz, LocalizationDiagnostics
 
 class PlaceNavNode:
 
@@ -218,6 +218,10 @@ class PlaceNavNode:
             self.robot_config['toponav_viz_info_topic'],
             Viz,
             queue_size=1)
+        self.localization_diagnostics_pub = rospy.Publisher(
+            self.robot_config['localization_diagnostics_topic'],
+            LocalizationDiagnostics,
+            queue_size=1)
 
         rospy.init_node("PlaceNavNode", anonymous=False)
 
@@ -359,6 +363,22 @@ class PlaceNavNode:
                 viz_msg.query_timestamp = current_obs_timestamp
                 viz_msg.subgoal_idx = subgoal_idx
                 viz_msg.waypoints = waypoints_to_ros_msg(waypoints)
+
+                diagnostics = getattr(self.place_recognition_querier, "last_diagnostics", None)
+                if diagnostics is not None:
+                    diagnostics_msg = LocalizationDiagnostics()
+                    diagnostics_msg.query_timestamp = current_obs_timestamp
+                    diagnostics_msg.current_node_idx = closest_node_idx
+                    diagnostics_msg.subgoal_idx = subgoal_idx
+                    diagnostics_msg.cosplace_top1_node_idx = diagnostics["cosplace_top1_node_idx"]
+                    diagnostics_msg.cosplace_top2_node_idx = diagnostics["cosplace_top2_node_idx"]
+                    diagnostics_msg.cosplace_top1_score = diagnostics["cosplace_top1_score"]
+                    diagnostics_msg.cosplace_top2_score = diagnostics["cosplace_top2_score"]
+                    diagnostics_msg.cosplace_score_margin = diagnostics["cosplace_score_margin"]
+                    diagnostics_msg.bayesian_belief_max = diagnostics["bayesian_belief_max"]
+                    diagnostics_msg.bayesian_belief_std = diagnostics["bayesian_belief_std"]
+                    diagnostics_msg.bayesian_belief_entropy = diagnostics["bayesian_belief_entropy"]
+                    self.localization_diagnostics_pub.publish(diagnostics_msg)
                 self.viz_pub.publish(viz_msg)
 
                 self.goal_pub.publish(reached_goal)

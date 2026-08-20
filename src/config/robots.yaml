@@ -18,3 +18,41 @@ turtlebot:
   reached_goal_topic: "/toponav/reached_goal"
   stop_topic: "/toponav/stop"
   toponav_viz_info_topic: "/toponav/viz_info"
+  localization_diagnostics_topic: "/toponav/localization_diagnostics"
+
+# WHILL used for the Tsukuba Challenge integration.
+#
+# The velocity output intentionally targets a nominal command topic. It must
+# pass through the safety layer before it can reach /local_path/cmd_vel and the
+# existing MotionDecision/WHILL control chain.
+whill:
+  max_v: 0.4 # m/s; WHILL test limit
+  max_w: 0.4 # rad/s; WHILL test limit
+
+  frame_rate: 5 # Hz
+  camera_height: 0.0 # m; TODO: replace with the measured optical-center height
+
+  # topic names
+  vel_teleop_topic: "/local_path/cmd_vel" # existing manual control remains external to PlaceNav
+  # vel_navi_topic: "/cmd_vel_nominal"
+  vel_navi_topic: "/local_path/cmd_vel"
+  odom_topic: "/odom"
+  camera_topic: "/usb_cam/image_raw"
+  waypoint_topic: "/waypoint"
+  reached_goal_topic: "/toponav/reached_goal"
+  stop_topic: "/toponav/stop"
+  toponav_viz_info_topic: "/toponav/viz_info"
+  localization_diagnostics_topic: "/toponav/localization_diagnostics"
+
+  safety:
+    nominal_cmd_topic: "/cmd_vel_nominal"
+    output_cmd_topic: "/local_path/cmd_vel"
+    emergency_stop_topic: "/emergency_stop"
+    safety_stop_topic: "/placenav/safety_stop"
+    safety_reason_topic: "/placenav/safety_reason"
+    command_timeout: 0.75 # seconds
+    camera_timeout: 0.75 # seconds
+    publish_rate: 20 # Hz
+    max_accel: 0.10 # m/s^2
+    max_angular_accel: 0.20 # rad/s^2
+    require_emergency_stop: true # fail closed until an emergency-stop message is received

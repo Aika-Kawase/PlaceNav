@@ -25,6 +25,7 @@ class PlaceRecognitionTopologicalFilter:
 
         # parameters for the transition matrix
         self.window_lower = window_lower
+        self.last_diagnostics = None
         self.window_upper = window_upper
         self.window_size = int((window_upper - window_lower) / 2)
         self.transition = np.ones(window_upper - window_lower)
@@ -103,6 +104,7 @@ class PlaceRecognitionTopologicalFilter:
             self.belief[:w_l] = 0.0
 
         # observation likelihood update
+        cosine_scores = np.dot(self.descriptors, query_desc)
         obs_lhood = self.obs_lhood(query_desc)
         self.belief *= obs_lhood
         self.belief /= self.belief.sum()
@@ -112,4 +114,30 @@ class PlaceRecognitionTopologicalFilter:
         score = self.belief[max_bel]
         proposal = max_bel
         
+        ranked = np.argsort(cosine_scores)[::-1]
+        top1_idx = int(ranked[0])
+        top2_idx = int(ranked[1]) if len(ranked) > 1 else top1_idx
+        top1_score = float(cosine_scores[top1_idx])
+        top2_score = float(cosine_scores[top2_idx])
+        node_indices = np.arange(len(self.belief), dtype=np.float64)
+        belief_mean = float(np.sum(node_indices * self.belief))
+        belief_std = float(np.sqrt(np.sum(
+            ((node_indices - belief_mean) ** 2) * self.belief
+        )))
+        nonzero_belief = self.belief[self.belief > 0]
+        belief_entropy = float(-np.sum(nonzero_belief * np.log(nonzero_belief)))
+        if len(self.belief) > 1:
+            belief_entropy /= float(np.log(len(self.belief)))
+
+        self.last_diagnostics = {
+            "cosplace_top1_node_idx": top1_idx,
+            "cosplace_top2_node_idx": top2_idx,
+            "cosplace_top1_score": top1_score,
+            "cosplace_top2_score": top2_score,
+            "cosplace_score_margin": top1_score - top2_score,
+            "bayesian_belief_max": float(score),
+            "bayesian_belief_std": belief_std,
+            "bayesian_belief_entropy": belief_entropy,
+        }
+
         return proposal, score
