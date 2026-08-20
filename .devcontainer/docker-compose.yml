@@ -24,8 +24,8 @@ services:
         source: /dev/dri
         target: /dev/dri
       - type: bind
-        source: ..
-        target: /home/user/ws/src/PlaceNav
+        source: ../..
+        target: /home/user/ws/src
       - type: bind
         source: ../../cache/noetic/build
         target: /home/user/ws/build
