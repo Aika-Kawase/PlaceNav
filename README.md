@@ -17,6 +17,124 @@ This repository contains code for deploying the PlaceNav navigation system on a 
 - `./src/record_bag_turtlebot.sh`: script to collect a demo trajectory in the target environment on the robot. This trajectory is subsampled to generate a topological graph of the environment.
 - `./src/navigate_turtlebot.sh`: script that deploys PlaceNav on the robot to navigate to a desired goal in the generated topological graph. Please see relevant sections below for configuration settings.
 
+## WHILL・つくばチャレンジ向けROS 1拡張
+
+### 概要
+
+PlaceNavをROS 1 Noetic環境でWHILLへ統合し、つくばチャレンジに向けた経路追従、トポロジカルマップ生成、安全な速度出力、可視化・局在診断を追加しました。
+
+再現可能なDocker開発・実行環境も追加し、PC上の開発環境とWHILL実機環境で同じPlaceNavコードを使用できる構成にしています。
+
+### 主な変更
+
+#### WHILL向けROS 1統合
+
+- WHILL用ロボット設定を追加
+- WHILLカメラ、オドメトリ、速度指令トピックへ対応
+- WHILL用のナビゲーション起動スクリプトを追加
+- WHILL用のトポロジカルマップ生成スクリプトを追加
+- WHILL用のrosbag記録スクリプトを追加
+- 可視化ノードの起動スクリプトを追加
+- PD ControllerとMotionDecisionの間へ接続可能な安全フィルタを追加
+
+#### 速度指令と安全処理
+
+- WHILLの最大線速度・最大角速度を設定可能に変更
+- 現在の実機試験上限を以下に設定
+  - 最大線速度：0.4 m/s
+  - 最大角速度：0.4 rad/s
+- nominal速度指令の上限処理を追加
+- 非常停止、入力timeout、無効値に対応する安全フィルタを追加
+- PD Controllerとロボットドライバをナビゲーション推論から分離
+
+#### 適応的トポロジカルマップ生成
+
+地図作成時のオドメトリ変化量を使用し、直線区間と旋回区間で画像ノードの保存間隔を変更できるようにしました。
+
+現在のWHILL用設定：
+
+- 直線区間：3.0 m
+- 旋回区間：0.15 m
+- 旋回判定：yaw変化 0.12 rad
+- 最小保存距離：0.10 m
+
+オドメトリは走行時のPlace Recognitionには使用せず、地図作成時のノード保存判定と軌跡記録に使用します。
+
+#### Place Recognition診断
+
+`/toponav/localization_diagnostics`を追加し、以下を記録・確認できるようにしました。
+
+- Bayesianフィルタが推定したcurrent node
+- 選択されたsubgoal node
+- CosPlaceの1位・2位ノード
+- CosPlaceの1位・2位類似度
+- 1位と2位のscore margin
+- Bayesian belief最大値
+- belief分布の標準偏差
+- 正規化belief entropy
+
+これにより、ノード選択の飛び、前後移動、画像照合の曖昧さをrosbagから分析できます。
+
+#### 可視化改善
+
+- 現在カメラ画像と選択されたsubgoal画像を並べて表示
+- GNM waypointを画像上へ表示
+- current node、subgoal、CosPlace score、Bayesian beliefをGUIへ表示
+- ナビゲーション起動時に可視化GUIを自動起動
+- `--no-visualization`によるGUI無効化に対応
+- rosbag再生時の画像とVizメッセージのtimestamp差を許容
+- 完全一致するtimestampが存在しない場合に、最も近い画像を使用
+- 観測画像bufferを拡張し、timestampずれによる`KeyError`を修正
+
+#### Docker・開発環境
+
+- Ubuntu 20.04／ROS Noeticベースの再現可能なDocker環境を追加
+- NVIDIA GPUを使用するPlaceNav推論環境を追加
+- モデル重みの初期取得処理を追加
+- `placenav_viz_msgs`をイメージ作成時にビルド
+- ホスト側ソースをROSワークスペースへbind mount
+- build、install、logキャッシュをホスト側へ分離
+- ROS master、ROS IP、host network設定を追加
+- コンテナ再作成・起動・接続手順をドキュメント化
+
+#### データ管理
+
+- 記録したrosbagをGit管理対象外へ設定
+- モデル重み、トポロジカルマップ、bagを実行環境側で保持する構成を整理
+
+### 追加された主なトピック
+
+- `/cmd_vel_nominal`
+- `/local_path/cmd_vel`
+- `/toponav/viz_info`
+- `/toponav/localization_diagnostics`
+- `/toponav/reached_goal`
+- `/toponav/stop`
+
+### 動作確認
+
+以下をPC開発環境およびWHILL実行環境で確認しました。
+
+- Dockerイメージのbuildとコンテナ起動
+- `placenav_viz_msgs`のビルド
+- `LocalizationDiagnostics.msg`のPython import
+- 既存`Viz.msg`のMD5互換性維持
+- WHILL用トポロジカルマップ生成
+- CosPlaceデータベース生成
+- GNMによるwaypoint推論
+- Bayesian Place Recognition
+- `/toponav/localization_diagnostics`のpublish
+- 可視化GUIの自動起動
+- rosbag再生時の可視化
+- WHILL上での速度指令出力
+- D館外周経路での実機走行
+
+### 補足
+
+この拡張はPlaceNavによる大まかな経路追従までを対象としています。
+
+深度カメラまたは単眼深度推定、局所障害物地図、TEB等を使用した障害物回避とPlaceNav経路への復帰は、別ブランチ・別PRで実装します。WHILL実行構成と操作手順の詳細は[`doc/WHILL_ROS1.md`](doc/WHILL_ROS1.md)を参照してください。
+
 
 ## Turtlebot2 Setup
 
