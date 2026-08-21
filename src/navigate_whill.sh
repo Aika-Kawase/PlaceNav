@@ -13,6 +13,7 @@ usage()
       'Usage: ./navigate_whill.sh --topomap-dir ROUTE [PlaceNav options]' \
       '' \
       'Starts inference and the GUI visualization. Use --no-visualization to suppress the GUI.' \
+      'Starts the GNM Path adapter. Use --no-path-adapter to suppress it.' \
       'It never starts the PD controller or robot drivers.'
 }
 
@@ -34,6 +35,7 @@ fi
 TOPOMAP_DIR=""
 PR_MODEL="cosplace"
 SHOW_VISUALIZATION=1
+START_PATH_ADAPTER=1
 NAV_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -49,6 +51,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-visualization)
             SHOW_VISUALIZATION=0
+            shift
+            ;;
+        --no-path-adapter)
+            START_PATH_ADAPTER=0
             shift
             ;;
         *)
@@ -72,10 +78,17 @@ python3 "${SCRIPT_DIR}/placenav/navigate.py" \
     "${NAV_ARGS[@]}" &
 NAV_PID=$!
 VIZ_PID=""
+PATH_ADAPTER_PID=""
+
+if [[ "${START_PATH_ADAPTER}" -eq 1 ]]; then
+    "${SCRIPT_DIR}/run_gnm_path_adapter_whill.sh" &
+    PATH_ADAPTER_PID=$!
+fi
 
 cleanup()
 {
     [[ -z "${VIZ_PID}" ]] || kill "${VIZ_PID}" 2>/dev/null || true
+    [[ -z "${PATH_ADAPTER_PID}" ]] || kill "${PATH_ADAPTER_PID}" 2>/dev/null || true
     kill "${NAV_PID}" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM

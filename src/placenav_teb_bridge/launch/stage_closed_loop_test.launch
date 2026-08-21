@@ -1,0 +1,74 @@
+<launch>
+  <param name="/use_sim_time" value="true"/>
+
+  <arg name="world" default="$(find placenav_teb_bridge)/stage/large_empty_box.world"/>
+  <arg name="waypoint_step" default="0.35"/>
+  <arg name="curvature" default="0.0"/>
+  <!-- Robot-start-relative [forward, left] points. Empty means generate 5 points. -->
+  <arg name="path_points" default="[]"/>
+  <arg name="use_rviz_goal" default="false"/>
+  <arg name="rviz_goal_topic" default="/move_base_simple/goal"/>
+  <arg name="goal_min_x" default="-5.5"/>
+  <arg name="goal_max_x" default="5.5"/>
+  <arg name="goal_min_y" default="-5.5"/>
+  <arg name="goal_max_y" default="5.5"/>
+  <arg name="with_obstacle" default="false"/>
+  <arg name="path_start_delay" default="0.0"/>
+  <!-- Obstacle coordinates are expressed in robot_0/odom. -->
+  <arg name="obstacle_x" default="-2.0"/>
+  <arg name="obstacle_y" default="-0.9"/>
+  <arg name="obstacle_half_width_x" default="0.15"/>
+  <arg name="obstacle_half_width_y" default="0.15"/>
+  <arg name="obstacle_min_z" default="0.2"/>
+  <arg name="obstacle_max_z" default="1.0"/>
+  <arg name="interactive_obstacle" default="false"/>
+
+  <node pkg="stage_ros"
+        type="stageros"
+        name="stageros"
+        args="$(arg world)"
+        output="screen"/>
+
+  <include file="$(find placenav_teb_bridge)/launch/bridge.launch">
+    <arg name="cmd_vel_topic" value="/robot_0/cmd_vel"/>
+    <arg name="global_frame" value="robot_0/odom"/>
+    <arg name="robot_base_frame" value="robot_0/base_link"/>
+    <arg name="odom_topic" value="/robot_0/odom"/>
+  </include>
+
+  <node pkg="placenav_teb_bridge"
+        type="publish_test_gnm_path.py"
+        name="test_gnm_path_publisher"
+        output="screen">
+    <param name="path_topic" value="/placenav/gnm_path"/>
+    <param name="odom_topic" value="/robot_0/odom"/>
+    <param name="frame_id" value="robot_0/odom"/>
+    <param name="publish_rate" value="5.0"/>
+    <param name="waypoint_step" value="$(arg waypoint_step)"/>
+    <param name="curvature" value="$(arg curvature)"/>
+    <param name="start_delay" value="$(arg path_start_delay)"/>
+    <rosparam param="local_points" subst_value="true">$(arg path_points)</rosparam>
+    <param name="use_rviz_goal" value="$(arg use_rviz_goal)"/>
+    <param name="goal_topic" value="$(arg rviz_goal_topic)"/>
+    <param name="goal_min_x" value="$(arg goal_min_x)"/>
+    <param name="goal_max_x" value="$(arg goal_max_x)"/>
+    <param name="goal_min_y" value="$(arg goal_min_y)"/>
+    <param name="goal_max_y" value="$(arg goal_max_y)"/>
+  </node>
+
+  <node if="$(arg with_obstacle)"
+        pkg="placenav_teb_bridge"
+        type="publish_test_obstacle_cloud.py"
+        name="test_obstacle_cloud_publisher"
+        output="screen">
+    <param name="topic" value="/stvl_test_points"/>
+    <param name="frame_id" value="robot_0/odom"/>
+    <param name="center_x" value="$(arg obstacle_x)"/>
+    <param name="center_y" value="$(arg obstacle_y)"/>
+    <param name="half_width_x" value="$(arg obstacle_half_width_x)"/>
+    <param name="half_width_y" value="$(arg obstacle_half_width_y)"/>
+    <param name="min_z" value="$(arg obstacle_min_z)"/>
+    <param name="max_z" value="$(arg obstacle_max_z)"/>
+    <param name="interactive" value="$(arg interactive_obstacle)"/>
+  </node>
+</launch>

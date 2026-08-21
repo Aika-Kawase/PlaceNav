@@ -1,0 +1,20 @@
+<launch>
+  <arg name="config" default="$(find placenav_teb_bridge)/config/bridge.yaml"/>
+  <arg name="cmd_vel_topic" default="/cmd_vel"/>
+  <arg name="global_frame" default="odom"/>
+  <arg name="robot_base_frame" default="base_link"/>
+  <arg name="odom_topic" default="/odom"/>
+  <arg name="stvl_topic" default="/stvl_test_points"/>
+
+  <node pkg="placenav_teb_bridge"
+        type="placenav_teb_bridge_node"
+        name="placenav_teb_bridge"
+        output="screen">
+    <rosparam command="load" file="$(arg config)"/>
+    <param name="cmd_vel_topic" value="$(arg cmd_vel_topic)"/>
+    <param name="local_costmap/global_frame" value="$(arg global_frame)"/>
+    <param name="local_costmap/robot_base_frame" value="$(arg robot_base_frame)"/>
+    <param name="TebLocalPlannerROS/odom_topic" value="$(arg odom_topic)"/>
+    <param name="local_costmap/stvl/depth_cloud/topic" value="$(arg stvl_topic)"/>
+  </node>
+</launch>

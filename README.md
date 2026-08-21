@@ -86,6 +86,28 @@ PlaceNavをROS 1 Noetic環境でWHILLへ統合し、つくばチャレンジに�
 - 完全一致するtimestampが存在しない場合に、最も近い画像を使用
 - 観測画像bufferを拡張し、timestampずれによる`KeyError`を修正
 
+#### GNM局所経路アダプター
+
+- `/toponav/viz_info`のGNM 5点を`base_link`基準の局所点列として受信
+- `query_timestamp`時点のTFで`odom`座標へ変換
+- 現在位置を先頭へ追加した`nav_msgs/Path`を`/placenav/gnm_path`へpublish
+- `navigate_whill.sh`から自動起動し、`--no-path-adapter`で無効化可能
+- カメラ更新停止時のPath無効化・停止判定は今後の安全処理で実装
+
+#### PlaceNav・TEBブリッジ
+
+- `/placenav/gnm_path`を購読し、`TebLocalPlannerROS::setPlan()`へ参照経路として入力
+- rolling local costmapへSTVLを組み込み、TEBの`computeVelocityCommands()`を5 Hzで実行
+- 出力は既定で`/cmd_vel`。launch引数でWHILL用トピックへ変更可能
+- Path未受信時、TEB計算失敗時、Path終端到達時はゼロ速度をpublish
+- 現在のfootprintはPC試験用の仮値であり、WHILL実機接続前に実測値への変更が必要
+
+起動例：
+
+```bash
+roslaunch placenav_teb_bridge bridge.launch cmd_vel_topic:=/cmd_vel
+```
+
 #### Docker・開発環境
 
 - Ubuntu 20.04／ROS Noeticベースの再現可能なDocker環境を追加
@@ -107,6 +129,7 @@ PlaceNavをROS 1 Noetic環境でWHILLへ統合し、つくばチャレンジに�
 - `/cmd_vel_nominal`
 - `/local_path/cmd_vel`
 - `/toponav/viz_info`
+- `/placenav/gnm_path`
 - `/toponav/localization_diagnostics`
 - `/toponav/reached_goal`
 - `/toponav/stop`
