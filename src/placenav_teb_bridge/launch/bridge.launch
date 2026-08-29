@@ -4,7 +4,7 @@
   <arg name="global_frame" default="odom"/>
   <arg name="robot_base_frame" default="base_link"/>
   <arg name="odom_topic" default="/odom"/>
-  <arg name="stvl_topic" default="/stvl_test_points"/>
+  <arg name="stvl_topic" default="/c2/depth/points"/>
 
   <node pkg="placenav_teb_bridge"
         type="placenav_teb_bridge_node"

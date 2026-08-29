@@ -34,6 +34,7 @@
     <arg name="global_frame" value="robot_0/odom"/>
     <arg name="robot_base_frame" value="robot_0/base_link"/>
     <arg name="odom_topic" value="/robot_0/odom"/>
+    <arg name="stvl_topic" value="/stvl_test_points"/>
   </include>
 
   <node pkg="placenav_teb_bridge"
