@@ -76,6 +76,16 @@ class PlaceNavNode:
         
         self._setup_ros()
 
+        if args.subgoal_mode == 'place_recognition':
+            ready_tmp_path = self._place_recognition_ready_path.with_suffix(
+                self._place_recognition_ready_path.suffix + ".tmp"
+            )
+            ready_tmp_path.write_text(
+                f"images={self.map_size}\n",
+                encoding="utf-8",
+            )
+            ready_tmp_path.replace(self._place_recognition_ready_path)
+
     def _load_topomap(self, topomap_images_base_dir, topomap_dir: Path):
         # List the topomap images with suffix img_suffix in the directory,
         # extract the filenames and sort them        
@@ -97,6 +107,7 @@ class PlaceNavNode:
             topomap_images.append(img)
         
         self.map_size = map_size
+        self.topomap_filenames = topomap_filenames
         self.topomap_images = topomap_images
 
     def _setup_place_recognition(
@@ -118,20 +129,21 @@ class PlaceNavNode:
 
         # Extract the global descriptors from the topomap images
         place_recognition_db_path = self.topomap_img_dir / f"global-feats-{place_recognition_model}.h5"
+        self._place_recognition_ready_path = Path(f"{place_recognition_db_path}.ready")
+        self._place_recognition_ready_path.unlink(missing_ok=True)
 
-        if not place_recognition_db_path.exists():
-            rospy.loginfo(f"Extracting features from topomaps in {self.topomap_img_dir}")
-            extract_database.main(
-                conf,
-                self.topomap_img_dir,
-                self._image_transform,
-                self.topomap_img_dir,
-                as_half=False,
-                )
-            
-        elif recompute_db:
+        if recompute_db:
             rospy.loginfo(f"Recomputing features from topomaps in {self.topomap_img_dir}")
-            place_recognition_db_path.unlink()
+            place_recognition_db_path.unlink(missing_ok=True)
+
+        if not extract_database.database_matches_images(
+            place_recognition_db_path,
+            self.topomap_filenames,
+        ):
+            rospy.loginfo(
+                "Place recognition database is missing or incomplete; "
+                f"extracting features for {self.map_size} topomap images"
+            )
             extract_database.main(
                 conf,
                 self.topomap_img_dir,
@@ -139,6 +151,15 @@ class PlaceNavNode:
                 self.topomap_img_dir,
                 as_half=False,
                 )
+
+        if not extract_database.database_matches_images(
+            place_recognition_db_path,
+            self.topomap_filenames,
+        ):
+            raise RuntimeError(
+                "Place recognition database is incomplete after feature extraction: "
+                f"expected {self.map_size} image entries in {place_recognition_db_path}"
+            )
 
         extractor = FeatureExtractor(conf, self.device)
 
