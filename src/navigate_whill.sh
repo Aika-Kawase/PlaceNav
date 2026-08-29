@@ -69,6 +69,10 @@ if [[ -z "${TOPOMAP_DIR}" ]]; then
     exit 2
 fi
 
+DB_PATH="${TOPOMAP_BASE_DIR}/${TOPOMAP_DIR}/global-feats-${PR_MODEL}.h5"
+DB_READY_PATH="${DB_PATH}.ready"
+rm -f "${DB_READY_PATH}"
+
 python3 "${SCRIPT_DIR}/placenav/navigate.py" \
     --robot whill \
     --robot-config-path "${ROBOT_CONFIG}" \
@@ -94,14 +98,12 @@ cleanup()
 trap cleanup EXIT INT TERM
 
 if [[ "${SHOW_VISUALIZATION}" -eq 1 ]]; then
-    DB_PATH="${TOPOMAP_BASE_DIR}/${TOPOMAP_DIR}/global-feats-${PR_MODEL}.h5"
     VISUALIZATION_READY=0
-    for _ in $(seq 1 120); do
-        if [[ -f "${DB_PATH}" ]] && rosnode ping -c 1 /PlaceNavNode >/dev/null 2>&1; then
+    while kill -0 "${NAV_PID}" 2>/dev/null; do
+        if [[ -f "${DB_READY_PATH}" ]] && rosnode ping -c 1 /PlaceNavNode >/dev/null 2>&1; then
             VISUALIZATION_READY=1
             break
         fi
-        kill -0 "${NAV_PID}" 2>/dev/null || break
         sleep 1
     done
     if [[ "${VISUALIZATION_READY}" -eq 1 ]] && kill -0 "${NAV_PID}" 2>/dev/null; then
@@ -111,7 +113,7 @@ if [[ "${SHOW_VISUALIZATION}" -eq 1 ]]; then
             --show &
         VIZ_PID=$!
     else
-        echo "Visualization was not started: navigation exited or ${DB_PATH} is missing." >&2
+        echo "Visualization was not started: navigation exited or ${DB_READY_PATH} is missing." >&2
     fi
 fi
 
