@@ -11,13 +11,45 @@ RUN groupadd --gid $USER_GID $USERNAME \
     && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
     && chmod 0440 /etc/sudoers.d/$USERNAME
 RUN apt-get update && apt-get upgrade -y
-RUN apt-get install -y --no-install-recommends ros-${ROS_DISTRO}-desktop ros-${ROS_DISTRO}-compressed-image-transport python3-colcon-common-extensions python3-pip python3-opencv feh wget ca-certificates
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+      ros-${ROS_DISTRO}-desktop \
+      ros-${ROS_DISTRO}-compressed-image-transport \
+      ros-${ROS_DISTRO}-navigation \
+      ros-${ROS_DISTRO}-costmap-converter \
+      ros-${ROS_DISTRO}-move-base-flex \
+      ros-${ROS_DISTRO}-pcl-conversions \
+      ros-${ROS_DISTRO}-pcl-ros \
+      ros-${ROS_DISTRO}-cmake-modules \
+      ros-${ROS_DISTRO}-laser-geometry \
+      ros-${ROS_DISTRO}-tf2-eigen \
+      ros-${ROS_DISTRO}-tf2-geometry-msgs \
+      ros-${ROS_DISTRO}-tf2-sensor-msgs \
+      libeigen3-dev \
+      ros-${ROS_DISTRO}-libg2o \
+      libopenexr-dev \
+      libopenvdb-dev \
+      libsuitesparse-dev \
+      libtbb-dev \
+      python3-colcon-common-extensions \
+      python3-pip \
+      python3-opencv \
+      feh \
+      wget \
+      ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 RUN rm -rf /etc/apt/apt.conf.d/docker-clean
 
 # PlaceNav Python runtime (including the pinned CUDA 11.3 PyTorch wheels).
 COPY requirements.txt /tmp/placenav-requirements.txt
 RUN printf 'typing-extensions==4.13.2\n' > /tmp/placenav-constraints.txt \
-    && python3 -m pip install --no-cache-dir -c /tmp/placenav-constraints.txt -r /tmp/placenav-requirements.txt --extra-index-url https://download.pytorch.org/whl/cu113
+    && python3 -m pip install \
+      --no-cache-dir \
+      --retries 10 \
+      --timeout 300 \
+      -c /tmp/placenav-constraints.txt \
+      -r /tmp/placenav-requirements.txt \
+      --extra-index-url https://download.pytorch.org/whl/cu113
 ENV SHELL /bin/bash
 RUN mkdir -p /home/user/ws/third_party /home/user/ws/src \
     && chown -R $USERNAME:$USERNAME /home/user/ws
