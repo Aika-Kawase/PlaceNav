@@ -16,6 +16,7 @@ services:
       - __GLX_VENDOR_LIBRARY_NAME=nvidia
       - ROS_MASTER_URI=http://192.168.1.146:11311
       - ROS_IP=192.168.1.146
+      - BUILD_OBSTACLE_STACK=1
     volumes:
       - type: bind
         source: /tmp/.X11-unix
@@ -24,8 +25,8 @@ services:
         source: /dev/dri
         target: /dev/dri
       - type: bind
-        source: ..
-        target: /home/user/ws/src/PlaceNav
+        source: ../..
+        target: /home/user/ws/src
       - type: bind
         source: ../../cache/noetic/build
         target: /home/user/ws/build

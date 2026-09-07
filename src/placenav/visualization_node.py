@@ -246,6 +246,16 @@ class TopoNavVisualizationNode:
                             query_obs_msg = self._obs_buffer[query_key]
 
                         # Get the topomap image corresponding to the query image
+                        if not 0 <= self._subgoal_idx < len(self._topomap_images):
+                            rospy.logwarn(
+                                "Invalid subgoal index: %d, visualization map size: %d; skipping frame",
+                                self._subgoal_idx,
+                                len(self._topomap_images),
+                            )
+                            self._subgoal_idx = None
+                            self._query_timestamp = None
+                            self._waypoints = None
+                            continue
                         subgoal_img = self._topomap_images[self._subgoal_idx]
                         waypoints = deepcopy(self._waypoints)
                         diagnostics = deepcopy(

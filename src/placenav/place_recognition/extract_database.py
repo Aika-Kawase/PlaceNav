@@ -75,6 +75,20 @@ def list_h5_names(path):
         fd.visititems(visit_fn)
     return list(set(names))
 
+
+def database_matches_images(path: Path, image_names) -> bool:
+    """Return True only when the HDF5 database exactly matches the map images."""
+    if not path.exists():
+        return False
+
+    try:
+        database_names = set(list_h5_names(path))
+    except (OSError, BlockingIOError):
+        return False
+
+    return database_names == set(image_names)
+
+
 class ImageDataset(torch.utils.data.Dataset):
     default_conf = {
         "globs": ["*.jpg", "*.png", "*.jpeg", "*.JPG", "*.PNG"],

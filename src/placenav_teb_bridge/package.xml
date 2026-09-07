@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>placenav_teb_bridge</name>
+  <version>0.1.0</version>
+  <description>Feeds PlaceNav GNM paths directly to TEB and publishes velocity commands.</description>
+
+  <maintainer email="aika.kawase@example.com">Aika Kawase</maintainer>
+  <license>BSD-3-Clause</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <depend>costmap_2d</depend>
+  <depend>geometry_msgs</depend>
+  <depend>interactive_markers</depend>
+  <depend>nav_msgs</depend>
+  <depend>roscpp</depend>
+  <depend>rospy</depend>
+  <depend>teb_local_planner</depend>
+  <depend>tf2_ros</depend>
+  <depend>visualization_msgs</depend>
+
+  <exec_depend>spatio_temporal_voxel_layer</exec_depend>
+
+  <export/>
+</package>
