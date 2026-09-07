@@ -24,4 +24,8 @@ if [ ! -d "$THIRD_PARTY/train/gnm_train" ]; then
 fi
 python3 -m pip install --user --no-deps -e "$THIRD_PARTY/train"
 
+if [ "${BUILD_OBSTACLE_STACK:-0}" = "1" ]; then
+  "$PLACE_NAV/scripts/build_obstacle_stack_ros1.sh" "$WS"
+fi
+
 exec "$@"
