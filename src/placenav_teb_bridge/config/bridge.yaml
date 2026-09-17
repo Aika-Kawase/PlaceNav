@@ -6,7 +6,7 @@ plan_orientation_epsilon: 0.02
 
 # These values are for PC integration tests. Measure the WHILL footprint and
 # create an explicit real-robot configuration before commanding the vehicle.
-footprint: [[-0.25, -0.20], [-0.25, 0.20], [0.25, 0.20], [0.25, -0.20]]
+footprint: [[-0.15, -0.30], [-0.15, 0.30], [0.85, 0.30], [0.85, -0.30]]
 footprint_padding: 0.02
 
 local_costmap:
@@ -88,14 +88,14 @@ TebLocalPlannerROS:
 
   footprint_model:
     type: polygon
-    vertices: [[-0.25, -0.20], [-0.25, 0.20], [0.25, 0.20], [0.25, -0.20]]
+    vertices: [[-0.15, -0.30], [-0.15, 0.30], [0.85, 0.30], [0.85, -0.30]]
 
   xy_goal_tolerance: 0.2
   yaw_goal_tolerance: 0.2
   free_goal_vel: false
   complete_global_plan: true
 
-  min_obstacle_dist: 0.1
+  min_obstacle_dist: 0.15
   inflation_dist: 0.45
   include_costmap_obstacles: true
   costmap_obstacles_behind_robot_dist: 1.0
