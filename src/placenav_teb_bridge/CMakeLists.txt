@@ -8,14 +8,16 @@ find_package(catkin REQUIRED COMPONENTS
   nav_msgs
   roscpp
   rospy
+  std_msgs
   teb_local_planner
+  tf2
   tf2_ros
   visualization_msgs
 )
 
 catkin_package(
   CATKIN_DEPENDS costmap_2d geometry_msgs interactive_markers nav_msgs roscpp rospy
-                 teb_local_planner tf2_ros visualization_msgs
+                 std_msgs teb_local_planner tf2 tf2_ros visualization_msgs
 )
 
 include_directories(${catkin_INCLUDE_DIRS})
@@ -35,5 +37,9 @@ install(TARGETS placenav_teb_bridge_node
 )
 
 install(DIRECTORY config launch stage
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
+)
+
+install(FILES README.md
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )

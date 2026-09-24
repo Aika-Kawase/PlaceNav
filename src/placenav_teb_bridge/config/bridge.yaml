@@ -1,11 +1,23 @@
 path_topic: /placenav/gnm_path
 cmd_vel_topic: /cmd_vel
 controller_frequency: 5.0
-plan_position_epsilon: 0.20 # 0.02
-plan_orientation_epsilon: 0.10 # 0.02
+plan_position_epsilon: 0.20
+plan_orientation_epsilon: 0.10
 
-# These values are for PC integration tests. Measure the WHILL footprint and
-# create an explicit real-robot configuration before commanding the vehicle.
+# Keep the newest PlaceNav path in the background. During avoidance, promote
+# the current TEB local path to the active global reference; after the obstacle
+# clears, restore the newest PlaceNav path for recovery.
+teb_local_plan_topic: /placenav_teb_bridge/TebLocalPlannerROS/local_plan
+obstacle_trigger_distance: 2.5
+obstacle_corridor_width: 0.8
+obstacle_min_forward_distance: 0.1
+obstacle_cost_threshold: 253
+avoidance_clear_time: 1.0
+recovery_stable_time: 1.0
+minimum_avoidance_plan_poses: 3
+
+# Initial WHILL parameters validated with recorded real-robot data. Continue
+# low-speed validation for low obstacles and outdoor conditions.
 footprint: [[-0.15, -0.30], [-0.15, 0.30], [0.85, 0.30], [0.85, -0.30]]
 footprint_padding: 0.02
 
@@ -28,7 +40,7 @@ local_costmap:
 
   stvl:
     enabled: true
-    voxel_decay: 1.0 # 3.0
+    voxel_decay: 1.0
     decay_model: 0
     voxel_size: 0.05
     track_unknown_space: false
@@ -48,7 +60,7 @@ local_costmap:
       topic: /c2/depth/points
       marking: true
       clearing: false
-      min_obstacle_height: 0.45 # 0.1
+      min_obstacle_height: 0.45
       max_obstacle_height: 1.5
       expected_update_rate: 0.0
       observation_persistence: 0.0
@@ -58,7 +70,7 @@ local_costmap:
 
   inflation:
     enabled: true
-    inflation_radius: 0.70 # 0.45
+    inflation_radius: 0.70
     cost_scaling_factor: 3.0
 
 TebLocalPlannerROS:
@@ -95,8 +107,8 @@ TebLocalPlannerROS:
   free_goal_vel: false
   complete_global_plan: true
 
-  min_obstacle_dist: 0.25 # 0.15
-  inflation_dist: 0.70 # 0.45
+  min_obstacle_dist: 0.25
+  inflation_dist: 0.70
   include_costmap_obstacles: true
   costmap_obstacles_behind_robot_dist: 1.0
   obstacle_poses_affected: 15
@@ -117,9 +129,9 @@ TebLocalPlannerROS:
   weight_optimaltime: 1
   weight_shortest_path: 0
   weight_obstacle: 100
-  weight_inflation: 5.0 # 0.2
+  weight_inflation: 5.0
   # Keep the GNM route as guidance, but allow local detours around obstacles.
-  weight_viapoint: 2 # 8
+  weight_viapoint: 2
   weight_adapt_factor: 2
 
   enable_homotopy_class_planning: true
