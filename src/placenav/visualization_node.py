@@ -11,6 +11,7 @@ from geometry_msgs.msg import Point
 import argparse
 import cv2
 import numpy as np
+import os
 import time
 import yaml
 
@@ -213,6 +214,32 @@ class TopoNavVisualizationNode:
 
     def run(self):
         rospy.loginfo("Starting visualization node. Press 'Q' to stop if the visualization is shown.")
+        if self._show:
+            waiting_panel = np.zeros(
+                (self._viz_image_size[1], 2 * self._viz_image_size[0], 3),
+                dtype=np.uint8,
+            )
+            cv2.putText(
+                waiting_panel,
+                "Waiting for camera image and /toponav/viz_info ...",
+                (30, self._viz_image_size[1] // 2),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (0, 255, 255),
+                2,
+                cv2.LINE_AA,
+            )
+            try:
+                cv2.namedWindow("Topological Navigation", cv2.WINDOW_NORMAL)
+                cv2.imshow("Topological Navigation", waiting_panel)
+                cv2.waitKey(1)
+            except cv2.error as exc:
+                raise RuntimeError(
+                    "Failed to open the PlaceNav GUI. "
+                    f"DISPLAY={os.environ.get('DISPLAY', '<unset>')}. "
+                    "Check the X11 socket/permission passed to the container."
+                ) from exc
+
         start_time = time.time()
         started_writing = False
         while not rospy.is_shutdown():

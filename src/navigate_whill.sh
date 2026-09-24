@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ -z "${DISPLAY:-}" ]]; then
+    for x_socket in /tmp/.X11-unix/X*; do
+        if [[ -S "${x_socket}" ]]; then
+            export DISPLAY=":${x_socket##*/X}"
+            echo "DISPLAY was unset; using local X11 display ${DISPLAY}"
+            break
+        fi
+    done
+fi
+export QT_X11_NO_MITSHM="${QT_X11_NO_MITSHM:-1}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROBOT_CONFIG="${SCRIPT_DIR}/config/robots.yaml"
 MODEL_CONFIG="${SCRIPT_DIR}/config/models.yaml"
@@ -107,11 +118,16 @@ if [[ "${SHOW_VISUALIZATION}" -eq 1 ]]; then
         sleep 1
     done
     if [[ "${VISUALIZATION_READY}" -eq 1 ]] && kill -0 "${NAV_PID}" 2>/dev/null; then
+        echo "Starting PlaceNav GUI on DISPLAY=${DISPLAY:-<unset>}"
         "${SCRIPT_DIR}/visualize_whill.sh" \
             --topomap-dir "${TOPOMAP_DIR}" \
             --pr-model "${PR_MODEL}" \
             --show &
         VIZ_PID=$!
+        sleep 1
+        if ! kill -0 "${VIZ_PID}" 2>/dev/null; then
+            echo "PlaceNav GUI exited during startup. Check the error above and the container DISPLAY/X11 settings." >&2
+        fi
     else
         echo "Visualization was not started: navigation exited or ${DB_READY_PATH} is missing." >&2
     fi
