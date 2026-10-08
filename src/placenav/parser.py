@@ -42,7 +42,8 @@ def parse_args():
         "--pr-model",
         default="cosplace",
         type=str,
-        help="place recognition model name (hint: check hloc extractors conf) (default: cosplace)",
+        choices=["cosplace", "megaloc", "salad", "anyloc"],
+        help="VPR backend (prepare new models with prepare_vpr.py first; default: cosplace)",
     )
     parser.add_argument(
         "--close-threshold",
@@ -166,5 +167,3 @@ def parse_args():
 
     args, _ = parser.parse_known_args()
     return args
-
-

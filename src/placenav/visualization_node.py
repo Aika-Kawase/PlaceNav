@@ -32,6 +32,7 @@ class TopoNavVisualizationNode:
     def __init__(self, args):
 
         self._viz_image_size = args.viz_img_size
+        self._pr_model_name = args.pr_model
         self._show = args.show
         self._save = args.save
         self._display_waypoints = args.display_waypoints
@@ -308,7 +309,7 @@ class TopoNavVisualizationNode:
                     if diagnostics is not None:
                         lines = [
                             f"current={diagnostics['current_node_idx']}  subgoal={diagnostics['subgoal_idx']}",
-                            f"CosPlace: {diagnostics['cosplace_top1_node_idx']}={diagnostics['cosplace_top1_score']:.3f}  "
+                            f"{self._pr_model_name}: {diagnostics['cosplace_top1_node_idx']}={diagnostics['cosplace_top1_score']:.3f}  "
                             f"{diagnostics['cosplace_top2_node_idx']}={diagnostics['cosplace_top2_score']:.3f}  "
                             f"margin={diagnostics['cosplace_score_margin']:.3f}",
                             f"Bayes: max={diagnostics['bayesian_belief_max']:.3f}  "
@@ -438,5 +439,4 @@ if __name__ == "__main__":
 
 
                 
-
 

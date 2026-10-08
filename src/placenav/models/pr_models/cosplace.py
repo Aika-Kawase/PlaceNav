@@ -20,8 +20,8 @@ class CosPlace(BaseModel):
     required_inputs = ['image']
     def _init(self, conf):
 
-        self.net = GeoLocalizationNet(conf['backbone'], conf['fc_output_dim'])
-        model_state_dict = torch.load( conf['checkpoint_path'])
+        self.net = GeoLocalizationNet(conf['backbone'], conf['fc_output_dim'], pretrained=False)
+        model_state_dict = torch.load(conf['checkpoint_path'], map_location='cpu')
         self.net.load_state_dict(model_state_dict)
         self.net = self.net.eval()
 

@@ -19,6 +19,7 @@ from place_recognition.bayesian_querier import PlaceRecognitionTopologicalFilter
 from place_recognition.sliding_window_querier import PlaceRecognitionSlidingWindowFilter
 from place_recognition.feature_extractor import FeatureExtractor
 from place_recognition import extract_database
+from place_recognition.vpr_config import image_transform, database_signature
 
 import parser
 from utils import to_numpy, load_model, read_image, get_image_transform, waypoints_to_ros_msg, bridge
@@ -44,6 +45,8 @@ class PlaceNavNode:
 
         # Get the image preprocessing transform for the neural network models
         self._image_transform = get_image_transform(args.img_size)
+        self._gnm_image_size = list(args.img_size)
+        self._vpr_transform = self._image_transform
 
         # Load the topological map
         self._load_topomap(args.topomap_base_dir, args.topomap_dir)
@@ -126,19 +129,23 @@ class PlaceNavNode:
             confs = yaml.safe_load(f)
             conf = confs[place_recognition_model]
         conf['model']["checkpoint_path"] = model_weight_dir / conf['model']["checkpoint_path"]
+        conf.setdefault('preprocessing', {'resize': self._gnm_image_size, 'normalize_first': False})
+        self._vpr_transform = image_transform(
+            conf['preprocessing']['resize'], conf['preprocessing'].get('normalize_first', False))
+        if not conf['model']['checkpoint_path'].is_file():
+            raise FileNotFoundError(
+                f"Missing {conf['model']['checkpoint_path']}. Prepare the selected VPR model first.")
+        signature = database_signature(conf, self.topomap_img_dir, self.topomap_filenames)
 
         # Extract the global descriptors from the topomap images
         place_recognition_db_path = self.topomap_img_dir / f"global-feats-{place_recognition_model}.h5"
         self._place_recognition_ready_path = Path(f"{place_recognition_db_path}.ready")
         self._place_recognition_ready_path.unlink(missing_ok=True)
 
-        if recompute_db:
-            rospy.loginfo(f"Recomputing features from topomaps in {self.topomap_img_dir}")
-            place_recognition_db_path.unlink(missing_ok=True)
-
-        if not extract_database.database_matches_images(
+        if recompute_db or not extract_database.database_matches_images(
             place_recognition_db_path,
             self.topomap_filenames,
+            signature,
         ):
             rospy.loginfo(
                 "Place recognition database is missing or incomplete; "
@@ -147,14 +154,17 @@ class PlaceNavNode:
             extract_database.main(
                 conf,
                 self.topomap_img_dir,
-                self._image_transform,
+                self._vpr_transform,
                 self.topomap_img_dir,
                 as_half=False,
+                signature=signature,
+                image_list=self.topomap_filenames,
                 )
 
         if not extract_database.database_matches_images(
             place_recognition_db_path,
             self.topomap_filenames,
+            signature,
         ):
             raise RuntimeError(
                 "Place recognition database is incomplete after feature extraction: "
@@ -249,13 +259,14 @@ class PlaceNavNode:
         
     def obs_callback(self, msg: Image):
         img = bridge.imgmsg_to_cv2(msg, desired_encoding="rgb8")
+        vpr_img = self._vpr_transform(img).unsqueeze(0)
         with self.obs_lock:
             img = self._image_transform(img).unsqueeze(0)
             if len(self.context_queue) < self.context_size + 1:
-                self.context_queue.append( {'timestamp': msg.header.stamp, 'img': img})
+                self.context_queue.append( {'timestamp': msg.header.stamp, 'img': img, 'vpr_img': vpr_img})
             else:            
                 self.context_queue.pop(0)
-                self.context_queue.append({'timestamp': msg.header.stamp, 'img': img})
+                self.context_queue.append({'timestamp': msg.header.stamp, 'img': img, 'vpr_img': vpr_img})
 
     def stop_callback(self, msg: Bool):
         if msg.data:
@@ -286,7 +297,7 @@ class PlaceNavNode:
             
             if len(context) >= self.context_size + 1:
 
-                current_obs = context[-1]['img'].to(self.device)
+                current_obs = context[-1]['vpr_img'].to(self.device)
                 current_obs_timestamp = context[-1]['timestamp']
                 # Cat the context images along the channel dimension
                 context = torch.cat([obs['img'] for obs in context], dim=1).to(self.device)
@@ -385,7 +396,7 @@ class PlaceNavNode:
                 viz_msg.subgoal_idx = subgoal_idx
                 viz_msg.waypoints = waypoints_to_ros_msg(waypoints)
 
-                diagnostics = getattr(self.place_recognition_querier, "last_diagnostics", None)
+                diagnostics = getattr(getattr(self, 'place_recognition_querier', None), "last_diagnostics", None)
                 if diagnostics is not None:
                     diagnostics_msg = LocalizationDiagnostics()
                     diagnostics_msg.query_timestamp = current_obs_timestamp
@@ -414,13 +425,3 @@ if __name__ == '__main__':
 
     placenav_node = PlaceNavNode(args)
     placenav_node.navigate(args)
-
-
-        
-
-
-
-
-
-        
-        

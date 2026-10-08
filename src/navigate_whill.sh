@@ -22,6 +22,7 @@ usage()
 {
     printf '%s\n' \
       'Usage: ./navigate_whill.sh --topomap-dir ROUTE [PlaceNav options]' \
+      '  --pr-model cosplace|megaloc|salad|anyloc (default: cosplace)' \
       '' \
       'Starts inference and the GUI visualization. Use --no-visualization to suppress the GUI.' \
       'Starts the GNM Path adapter. Use --no-path-adapter to suppress it.' \
@@ -35,11 +36,6 @@ fi
 
 if [[ ! -f "${MODEL_WEIGHT_DIR}/gnm_large.pth" ]]; then
     echo "Missing GNM checkpoint: ${MODEL_WEIGHT_DIR}/gnm_large.pth" >&2
-    exit 1
-fi
-
-if [[ ! -f "${MODEL_WEIGHT_DIR}/efficientnet_85x85.pth" ]]; then
-    echo "Missing CosPlace checkpoint: ${MODEL_WEIGHT_DIR}/efficientnet_85x85.pth" >&2
     exit 1
 fi
 

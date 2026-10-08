@@ -19,3 +19,36 @@ cosplace:
     backbone: "EfficientNet_B0"
     fc_output_dim: 512
     checkpoint_path: "efficientnet_85x85.pth"
+
+# Sizes are [width, height]. GNM continues to use --img-size independently.
+megaloc:
+  output: global-feats-megaloc
+  preprocessing: {resize: [322, 322], normalize_first: true}
+  model:
+    name: torchscript_vpr
+    backend: megaloc
+    input_size: [322, 322]
+    descriptor_dim: 8448
+    checkpoint_path: vpr/megaloc.pt
+
+salad:
+  output: global-feats-salad
+  preprocessing: {resize: [322, 322], normalize_first: true}
+  model:
+    name: torchscript_vpr
+    backend: salad
+    input_size: [322, 322]
+    descriptor_dim: 8448
+    checkpoint_path: vpr/salad.pt
+
+# AnyLoc-DINOv2 ViT-g/14, layer 31 value, 32 urban clusters.
+# Fixed 322x322 deployment resolution; not the variable-size official demo.
+anyloc:
+  output: global-feats-anyloc
+  preprocessing: {resize: [322, 322], normalize_first: true}
+  model:
+    name: torchscript_vpr
+    backend: anyloc
+    input_size: [322, 322]
+    descriptor_dim: 49152
+    checkpoint_path: vpr/anyloc.pt

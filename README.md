@@ -19,6 +19,12 @@ This repository contains code for deploying the PlaceNav navigation system on a 
 
 ## WHILL・つくばチャレンジ向けROS 1拡張
 
+### VPRモデルの切替
+
+`navigate_whill.sh --pr-model cosplace|megaloc|salad|anyloc`でモデルを選択できます。
+初回のコンテナ更新・モデル準備と実行方法は[VPRバックエンド手順](docs/vpr-backends.md)を参照してください。
+同じ事前マップからモデル別の特徴量DBを生成し、GNM入力とTEB設定は変更しません。
+
 ### 概要
 
 PlaceNavをROS 1 Noetic環境でWHILLへ統合し、つくばチャレンジに向けた経路追従、トポロジカルマップ生成、安全な速度出力、可視化・局在診断を追加しました。
