@@ -19,10 +19,10 @@ def parse_args():
     parser.add_argument(
         "--img-size",
         "-i",
-        default=(85, 64),
+        default=None,
         type=int,
         nargs=2,
-        help="image size (default: [85, 64])",
+        help="waypoint image size; default is selected model's image_size (not VPR size)",
     )
     parser.add_argument(
         "--topomap-dir",
@@ -35,8 +35,8 @@ def parse_args():
         "--wp-model",
         default="gnm_large",
         type=str,
-        help="waypoint model name (hint: check ../config/models.yaml) (default: large_gnm)",
-        required=True,
+        choices=["gnm_large", "vint", "nomad"],
+        help="waypoint model (default: gnm_large); prepare ViNT/NoMaD weights first",
     )
     parser.add_argument(
         "--pr-model",
@@ -45,6 +45,8 @@ def parse_args():
         choices=["cosplace", "megaloc", "salad", "anyloc"],
         help="VPR backend (prepare new models with prepare_vpr.py first; default: cosplace)",
     )
+    parser.add_argument("--nomad-seed", type=int, default=0,
+                        help="per-inference NoMaD diffusion seed (default: 0)")
     parser.add_argument(
         "--close-threshold",
         "-t",

@@ -44,8 +44,18 @@ class PlaceNavNode:
             self.device = torch.device("cpu")
 
         # Get the image preprocessing transform for the neural network models
+        with args.model_config_path.open(encoding="utf-8") as f:
+            wp_config = yaml.safe_load(f)[args.wp_model]
+        args.img_size = args.img_size or wp_config["image_size"]
+        if list(args.img_size) != list(wp_config["image_size"]) and args.wp_model != "gnm_large":
+            raise ValueError(f"{args.wp_model} requires image_size={wp_config['image_size']}")
+        if not 0 <= args.target_waypoint_idx < wp_config["len_traj_pred"]:
+            raise ValueError("--target-waypoint-idx is outside the model's predicted trajectory")
+        self._nomad_seed = args.nomad_seed
         self._image_transform = get_image_transform(args.img_size)
-        self._gnm_image_size = list(args.img_size)
+        if args.wp_model in ("vint", "nomad"):
+            from placenav.waypoint_backends import waypoint_transform
+            self._image_transform = waypoint_transform(args.img_size)
         self._vpr_transform = self._image_transform
 
         # Load the topological map
@@ -129,7 +139,8 @@ class PlaceNavNode:
             confs = yaml.safe_load(f)
             conf = confs[place_recognition_model]
         conf['model']["checkpoint_path"] = model_weight_dir / conf['model']["checkpoint_path"]
-        conf.setdefault('preprocessing', {'resize': self._gnm_image_size, 'normalize_first': False})
+        # CosPlace must not change resolution when the waypoint backend changes.
+        conf.setdefault('preprocessing', {'resize': [85, 64], 'normalize_first': False})
         self._vpr_transform = image_transform(
             conf['preprocessing']['resize'], conf['preprocessing'].get('normalize_first', False))
         if not conf['model']['checkpoint_path'].is_file():
@@ -203,6 +214,11 @@ class PlaceNavNode:
             model_configs = yaml.safe_load(f)
         model_config = model_configs[model]
         model_config["img_size"] = img_size
+        model_config["seed"] = self._nomad_seed
+        self.waypoint_scale = (self.robot_config["max_v"] / self.robot_config["frame_rate"]
+                               if model_config.get("metric_scale") == "robot_step" else 1.0)
+        rospy.loginfo("Waypoint backend=%s, image=%s, points=%d, XY scale=%g",
+                      model, img_size, model_config["len_traj_pred"], self.waypoint_scale)
 
         model_path = model_weight_dir / model_config["checkpoint_path"]
         if not model_path.exists():
@@ -374,6 +390,14 @@ class PlaceNavNode:
                         raise ValueError(f"Filter mode {args.filter_mode} not recognized for subgoal mode {args.subgoal_mode}")
                 else:
                     raise ValueError(f"Subgoal mode {args.subgoal_mode} not recognized")
+
+                if not np.isfinite(waypoints).all():
+                    rospy.logerr_throttle(2.0, "Non-finite waypoint prediction; not publishing path")
+                    rate.sleep()
+                    continue
+                # Official ViNT/NoMaD actions are normalized displacements, not
+                # meters. Preserve legacy GNM behavior; scale only configured models.
+                waypoints[:, :2] *= self.waypoint_scale
 
                 # Check if the goal has been reached
                 reached_goal = closest_node_idx == args.goal_node_idx

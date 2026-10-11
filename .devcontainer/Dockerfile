@@ -43,6 +43,7 @@ RUN rm -rf /etc/apt/apt.conf.d/docker-clean
 # Torch 2.1 supports the attention operators in the exported VPR models.
 COPY requirements.txt /tmp/placenav-requirements.txt
 COPY requirements-vpr-prepare.txt /tmp/placenav-vpr-prepare.txt
+COPY requirements-waypoint.txt /tmp/placenav-waypoint.txt
 RUN printf 'typing-extensions==4.13.2\n' > /tmp/placenav-constraints.txt \
     && python3 -m pip install \
       --no-cache-dir \
@@ -51,6 +52,7 @@ RUN printf 'typing-extensions==4.13.2\n' > /tmp/placenav-constraints.txt \
       -c /tmp/placenav-constraints.txt \
       -r /tmp/placenav-requirements.txt \
       -r /tmp/placenav-vpr-prepare.txt \
+      -r /tmp/placenav-waypoint.txt \
       --extra-index-url https://download.pytorch.org/whl/cu118
 ENV SHELL /bin/bash
 RUN mkdir -p /home/user/ws/third_party /home/user/ws/src \

@@ -23,6 +23,7 @@ usage()
     printf '%s\n' \
       'Usage: ./navigate_whill.sh --topomap-dir ROUTE [PlaceNav options]' \
       '  --pr-model cosplace|megaloc|salad|anyloc (default: cosplace)' \
+      '  --wp-model gnm_large|vint|nomad (default: gnm_large)' \
       '' \
       'Starts inference and the GUI visualization. Use --no-visualization to suppress the GUI.' \
       'Starts the GNM Path adapter. Use --no-path-adapter to suppress it.' \
@@ -34,18 +35,19 @@ if [[ $# -eq 0 ]]; then
     exit 2
 fi
 
-if [[ ! -f "${MODEL_WEIGHT_DIR}/gnm_large.pth" ]]; then
-    echo "Missing GNM checkpoint: ${MODEL_WEIGHT_DIR}/gnm_large.pth" >&2
-    exit 1
-fi
-
 TOPOMAP_DIR=""
 PR_MODEL="cosplace"
+WP_MODEL="gnm_large"
 SHOW_VISUALIZATION=1
 START_PATH_ADAPTER=1
 NAV_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --wp-model)
+            WP_MODEL="$2"
+            NAV_ARGS+=("$1" "$2")
+            shift 2
+            ;;
         --topomap-dir)
             TOPOMAP_DIR="$2"
             NAV_ARGS+=("$1" "$2")
@@ -92,7 +94,9 @@ VIZ_PID=""
 PATH_ADAPTER_PID=""
 
 if [[ "${START_PATH_ADAPTER}" -eq 1 ]]; then
-    "${SCRIPT_DIR}/run_gnm_path_adapter_whill.sh" &
+    EXPECTED_WAYPOINTS=5
+    [[ "${WP_MODEL}" != "nomad" ]] || EXPECTED_WAYPOINTS=8
+    "${SCRIPT_DIR}/run_gnm_path_adapter_whill.sh" --expected-waypoints "${EXPECTED_WAYPOINTS}" &
     PATH_ADAPTER_PID=$!
 fi
 
