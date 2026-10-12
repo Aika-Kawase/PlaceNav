@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ -z "${DISPLAY:-}" ]]; then
+    for x_socket in /tmp/.X11-unix/X*; do
+        if [[ -S "${x_socket}" ]]; then
+            export DISPLAY=":${x_socket##*/X}"
+            echo "DISPLAY was unset; using local X11 display ${DISPLAY}"
+            break
+        fi
+    done
+fi
+export QT_X11_NO_MITSHM="${QT_X11_NO_MITSHM:-1}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROBOT_CONFIG="${SCRIPT_DIR}/config/robots.yaml"
 MODEL_CONFIG="${SCRIPT_DIR}/config/models.yaml"
@@ -11,8 +22,11 @@ usage()
 {
     printf '%s\n' \
       'Usage: ./navigate_whill.sh --topomap-dir ROUTE [PlaceNav options]' \
+      '  --pr-model cosplace|megaloc|salad|anyloc (default: cosplace)' \
+      '  --wp-model gnm_large|vint|nomad (default: gnm_large)' \
       '' \
       'Starts inference and the GUI visualization. Use --no-visualization to suppress the GUI.' \
+      'Starts the GNM Path adapter. Use --no-path-adapter to suppress it.' \
       'It never starts the PD controller or robot drivers.'
 }
 
@@ -21,22 +35,19 @@ if [[ $# -eq 0 ]]; then
     exit 2
 fi
 
-if [[ ! -f "${MODEL_WEIGHT_DIR}/gnm_large.pth" ]]; then
-    echo "Missing GNM checkpoint: ${MODEL_WEIGHT_DIR}/gnm_large.pth" >&2
-    exit 1
-fi
-
-if [[ ! -f "${MODEL_WEIGHT_DIR}/efficientnet_85x85.pth" ]]; then
-    echo "Missing CosPlace checkpoint: ${MODEL_WEIGHT_DIR}/efficientnet_85x85.pth" >&2
-    exit 1
-fi
-
 TOPOMAP_DIR=""
 PR_MODEL="cosplace"
+WP_MODEL="gnm_large"
 SHOW_VISUALIZATION=1
+START_PATH_ADAPTER=1
 NAV_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --wp-model)
+            WP_MODEL="$2"
+            NAV_ARGS+=("$1" "$2")
+            shift 2
+            ;;
         --topomap-dir)
             TOPOMAP_DIR="$2"
             NAV_ARGS+=("$1" "$2")
@@ -51,6 +62,10 @@ while [[ $# -gt 0 ]]; do
             SHOW_VISUALIZATION=0
             shift
             ;;
+        --no-path-adapter)
+            START_PATH_ADAPTER=0
+            shift
+            ;;
         *)
             NAV_ARGS+=("$1")
             shift
@@ -63,6 +78,10 @@ if [[ -z "${TOPOMAP_DIR}" ]]; then
     exit 2
 fi
 
+DB_PATH="${TOPOMAP_BASE_DIR}/${TOPOMAP_DIR}/global-feats-${PR_MODEL}.h5"
+DB_READY_PATH="${DB_PATH}.ready"
+rm -f "${DB_READY_PATH}"
+
 python3 "${SCRIPT_DIR}/placenav/navigate.py" \
     --robot whill \
     --robot-config-path "${ROBOT_CONFIG}" \
@@ -72,33 +91,45 @@ python3 "${SCRIPT_DIR}/placenav/navigate.py" \
     "${NAV_ARGS[@]}" &
 NAV_PID=$!
 VIZ_PID=""
+PATH_ADAPTER_PID=""
+
+if [[ "${START_PATH_ADAPTER}" -eq 1 ]]; then
+    EXPECTED_WAYPOINTS=5
+    [[ "${WP_MODEL}" != "nomad" ]] || EXPECTED_WAYPOINTS=8
+    "${SCRIPT_DIR}/run_gnm_path_adapter_whill.sh" --expected-waypoints "${EXPECTED_WAYPOINTS}" &
+    PATH_ADAPTER_PID=$!
+fi
 
 cleanup()
 {
     [[ -z "${VIZ_PID}" ]] || kill "${VIZ_PID}" 2>/dev/null || true
+    [[ -z "${PATH_ADAPTER_PID}" ]] || kill "${PATH_ADAPTER_PID}" 2>/dev/null || true
     kill "${NAV_PID}" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
 if [[ "${SHOW_VISUALIZATION}" -eq 1 ]]; then
-    DB_PATH="${TOPOMAP_BASE_DIR}/${TOPOMAP_DIR}/global-feats-${PR_MODEL}.h5"
     VISUALIZATION_READY=0
-    for _ in $(seq 1 120); do
-        if [[ -f "${DB_PATH}" ]] && rosnode ping -c 1 /PlaceNavNode >/dev/null 2>&1; then
+    while kill -0 "${NAV_PID}" 2>/dev/null; do
+        if [[ -f "${DB_READY_PATH}" ]] && rosnode ping -c 1 /PlaceNavNode >/dev/null 2>&1; then
             VISUALIZATION_READY=1
             break
         fi
-        kill -0 "${NAV_PID}" 2>/dev/null || break
         sleep 1
     done
     if [[ "${VISUALIZATION_READY}" -eq 1 ]] && kill -0 "${NAV_PID}" 2>/dev/null; then
+        echo "Starting PlaceNav GUI on DISPLAY=${DISPLAY:-<unset>}"
         "${SCRIPT_DIR}/visualize_whill.sh" \
             --topomap-dir "${TOPOMAP_DIR}" \
             --pr-model "${PR_MODEL}" \
             --show &
         VIZ_PID=$!
+        sleep 1
+        if ! kill -0 "${VIZ_PID}" 2>/dev/null; then
+            echo "PlaceNav GUI exited during startup. Check the error above and the container DISPLAY/X11 settings." >&2
+        fi
     else
-        echo "Visualization was not started: navigation exited or ${DB_PATH} is missing." >&2
+        echo "Visualization was not started: navigation exited or ${DB_READY_PATH} is missing." >&2
     fi
 fi
 

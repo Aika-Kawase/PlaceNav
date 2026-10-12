@@ -11,6 +11,43 @@ gnm_large:
   obs_encoding_size: 1024  # observation encoding dimension
   goal_encoding_size: 1024 # goal encoding dimension
 
+vint:
+  image_size: [85, 64]
+  checkpoint_path: waypoint/vint.pth
+  model_type: vint
+  context_size: 5
+  len_traj_pred: 5
+  normalize: true
+  # Trial XY scale: twice the previous WHILL 0.4/5=0.08; validate in bag replay.
+  # Use robot_step to restore upstream max_v/frame_rate conversion.
+  metric_scale: 0.16
+  learn_angle: true
+  obs_encoder: efficientnet-b0
+  obs_encoding_size: 512
+  late_fusion: false
+  mha_num_attention_heads: 4
+  mha_num_attention_layers: 4
+  mha_ff_dim_factor: 4
+
+nomad:
+  image_size: [96, 96]
+  checkpoint_path: waypoint/nomad.pth
+  model_type: nomad
+  context_size: 3
+  len_traj_pred: 8
+  normalize: true
+  # Trial XY scale, independent of speed limits (robot_step restores upstream).
+  metric_scale: 0.16
+  learn_angle: false
+  encoding_size: 256
+  mha_num_attention_heads: 4
+  mha_num_attention_layers: 4
+  mha_ff_dim_factor: 4
+  down_dims: [64, 128, 256]
+  cond_predict_scale: false
+  num_diffusion_iters: 10
+  seed: 0
+
 # Place recognition models
 cosplace:
   output: "global-feats-cosplace"
@@ -19,3 +56,36 @@ cosplace:
     backbone: "EfficientNet_B0"
     fc_output_dim: 512
     checkpoint_path: "efficientnet_85x85.pth"
+
+# Sizes are [width, height]. GNM continues to use --img-size independently.
+megaloc:
+  output: global-feats-megaloc
+  preprocessing: {resize: [322, 322], normalize_first: true}
+  model:
+    name: torchscript_vpr
+    backend: megaloc
+    input_size: [322, 322]
+    descriptor_dim: 8448
+    checkpoint_path: vpr/megaloc.pt
+
+salad:
+  output: global-feats-salad
+  preprocessing: {resize: [322, 322], normalize_first: true}
+  model:
+    name: torchscript_vpr
+    backend: salad
+    input_size: [322, 322]
+    descriptor_dim: 8448
+    checkpoint_path: vpr/salad.pt
+
+# AnyLoc-DINOv2 ViT-g/14, layer 31 value, 32 urban clusters.
+# Fixed 322x322 deployment resolution; not the variable-size official demo.
+anyloc:
+  output: global-feats-anyloc
+  preprocessing: {resize: [322, 322], normalize_first: true}
+  model:
+    name: torchscript_vpr
+    backend: anyloc
+    input_size: [322, 322]
+    descriptor_dim: 49152
+    checkpoint_path: vpr/anyloc.pt

@@ -19,6 +19,12 @@ This repository contains code for deploying the PlaceNav navigation system on a 
 
 ## WHILL・つくばチャレンジ向けROS 1拡張
 
+### VPRモデルの切替
+
+`navigate_whill.sh --pr-model cosplace|megaloc|salad|anyloc`でモデルを選択できます。
+初回のコンテナ更新・モデル準備と実行方法は[VPRバックエンド手順](docs/vpr-backends.md)を参照してください。
+同じ事前マップからモデル別の特徴量DBを生成し、GNM入力とTEB設定は変更しません。
+
 ### 概要
 
 PlaceNavをROS 1 Noetic環境でWHILLへ統合し、つくばチャレンジに向けた経路追従、トポロジカルマップ生成、安全な速度出力、可視化・局在診断を追加しました。
@@ -86,6 +92,28 @@ PlaceNavをROS 1 Noetic環境でWHILLへ統合し、つくばチャレンジに�
 - 完全一致するtimestampが存在しない場合に、最も近い画像を使用
 - 観測画像bufferを拡張し、timestampずれによる`KeyError`を修正
 
+#### GNM局所経路アダプター
+
+- `/toponav/viz_info`のGNM 5点を`base_link`基準の局所点列として受信
+- `query_timestamp`時点のTFで`odom`座標へ変換
+- 現在位置を先頭へ追加した`nav_msgs/Path`を`/placenav/gnm_path`へpublish
+- `navigate_whill.sh`から自動起動し、`--no-path-adapter`で無効化可能
+- カメラ更新停止時のPath無効化・停止判定は今後の安全処理で実装
+
+#### PlaceNav・TEBブリッジ
+
+- `/placenav/gnm_path`を購読し、`TebLocalPlannerROS::setPlan()`へ参照経路として入力
+- rolling local costmapへSTVLを組み込み、TEBの`computeVelocityCommands()`を5 Hzで実行
+- 出力は既定で`/cmd_vel`。launch引数でWHILL用トピックへ変更可能
+- Path未受信時、TEB計算失敗時、Path終端到達時はゼロ速度をpublish
+- 現在のfootprintはPC試験用の仮値であり、WHILL実機接続前に実測値への変更が必要
+
+起動例：
+
+```bash
+roslaunch placenav_teb_bridge bridge.launch cmd_vel_topic:=/cmd_vel
+```
+
 #### Docker・開発環境
 
 - Ubuntu 20.04／ROS Noeticベースの再現可能なDocker環境を追加
@@ -107,6 +135,7 @@ PlaceNavをROS 1 Noetic環境でWHILLへ統合し、つくばチャレンジに�
 - `/cmd_vel_nominal`
 - `/local_path/cmd_vel`
 - `/toponav/viz_info`
+- `/placenav/gnm_path`
 - `/toponav/localization_diagnostics`
 - `/toponav/reached_goal`
 - `/toponav/stop`
@@ -330,3 +359,108 @@ docker compose -f .devcontainer/docker-compose.yml exec ros-noetic-docker-ws bas
 ```
 
 Alternatively, start directly in the background with `-d` and then use the same `ps` and `exec` commands.
+
+## Selectable waypoint models: GNM / ViNT / NoMaD
+
+Branch `feature/waypoint-model-backends` extends `feature/vpr-model-backends`.
+`--pr-model` still selects localization; independently, `--wp-model` selects the
+goal-image-conditioned trajectory predictor. The TEB state machine and its YAML
+parameters are unchanged. Navigation does not start the PD controller or drivers.
+
+Inside the ROS container, prepare once while online (or rebuild the Docker image
+to install the Python dependencies):
+
+```bash
+cd /home/user/ws/src/PlaceNav
+python3 -m pip install -r requirements-waypoint.txt
+python3 src/prepare_waypoint.py --models vint nomad
+python3 src/verify_waypoint.py --models vint nomad --device cuda
+```
+
+Preparation downloads pinned upstream source repositories and the official
+pretrained weights into `src/model_weights/waypoint/` (ignored by Git). Copy that
+**entire directory**, including `sources/`, to another machine for offline use.
+VPR weights must also have been prepared separately. Navigation itself never
+downloads ViNT/NoMaD weights. Only load trusted checkpoints; the legacy ViNT
+checkpoint contains pickled Python model objects. JSON sidecars record hashes.
+
+```bash
+cd /home/user/ws/src/PlaceNav/src
+./navigate_whill.sh \
+  --topomap-dir whill_short_route_adaptive_c2_6 \
+  --wp-model vint \
+  --pr-model megaloc \
+  --subgoal-mode place_recognition \
+  --filter-mode bayesian
+```
+
+Replace `vint` with `nomad` or `gnm_large`. Replace `megaloc` with any prepared
+VPR backend (`cosplace`, `salad`, `anyloc`). Start TEB separately as before, using
+`/teb_test/cmd_vel` for PC tests, never a vehicle command topic.
+
+| Predictor | Input W×H | History + current | Predicted points |
+| --- | --- | --- | --- |
+| GNM | 85×64 | 5 + 1 | 5, XY + heading |
+| ViNT | 85×64 | 5 + 1 | 5, XY + heading |
+| NoMaD | 96×96 | 3 + 1 | 8, XY |
+
+ViNT/NoMaD use the upstream PIL resize without center cropping. CosPlace remains
+85×64 and the other VPR transforms remain unchanged when the predictor changes;
+their feature databases can therefore be reused. `--img-size` is not a VPR option.
+
+NoMaD uses an **unmasked goal**, 10 DDPM denoising iterations, and one sampled
+trajectory. `--nomad-seed 0` fixes the per-call random seed for repeatable input
+comparisons; predictions are not averaged across different routes. Identical
+inputs are reproducible on a given setup, but this does not guarantee identical
+results across hardware/PyTorch versions or ROS message timing.
+
+The new models' normalized XY outputs are converted using `metric_scale` in
+`src/config/models.yaml`. A positive finite number specifies meters per normalized
+unit independently of velocity limits. ViNT and NoMaD currently use **0.16** as a
+bag-replay trial setting, twice the previous WHILL scale of 0.08; this is not a
+calibrated metric conversion or a guarantee of better obstacle avoidance.
+Set `metric_scale: robot_step` to restore the official deployment conversion
+`max_v / frame_rate` (WHILL: 0.4 / 5 = 0.08). Missing `metric_scale` defaults to 1.0.
+This conversion applies to **all** output points, including `/waypoint` and
+`/toponav/viz_info`, before TF conversion. Legacy GNM scaling remains unchanged
+for regression compatibility; take this difference into account in comparisons.
+Do not interpret a longer/shorter displayed path as model accuracy alone.
+Changing the scale changes turn locations as well as path length. Compare the
+paths against scene geometry in the same bag before vehicle trials.
+
+The TEB bridge now reapplies a newly received path after endpoint completion even
+when it is within the path-equivalence thresholds of the previous path. Previously
+that update could be skipped while `has_plan_` remained false, leaving the bridge
+stopped. Active equivalent plans are still deduplicated. This does not remove TEB's
+endpoint stop or change the avoidance/recovery transition conditions.
+
+For compatibility, the output topic is still called `/placenav/gnm_path` for all
+models. The wrapper configures the adapter for 5 or 8 points. It adds the robot
+origin by default, yielding 6 or 9 `Path.poses`. NoMaD does not replace TEB or the
+depth-based obstacle detector. Check latency, metric path size, TF, and obstacle
+avoidance in bag replay before low-speed supervised vehicle trials. Bag replay
+is open-loop: it cannot prove that following a predicted path would succeed.
+
+Offline checks (ROS environment sourced for the existing path tests):
+
+```bash
+python3 -m unittest discover -s tests -p 'test_waypoint_backends.py' -v
+python3 -m unittest discover -s tests -p 'test_gnm_path_adapter.py' -v
+python3 src/verify_waypoint.py --models vint nomad --device cuda \
+  --image src/topomaps/images/whill_short_route_adaptive_c2_6/0.jpg
+```
+
+For a wrapper-level integration smoke test, the following command creates a
+separate localhost ROS master on port 11329, feeds a stationary recorded image,
+and checks VPR → waypoint inference → `odom` Path. It never starts a velocity
+controller. Repeat with `vint` or `gnm_large`; `--pr-model` defaults to `cosplace`.
+
+```bash
+python3 src/verify_waypoint_ros.py --wp-model nomad \
+  --images src/topomaps/images/whill_short_route_adaptive_c2_6
+```
+
+This synthetic smoke test is not a bag-replay or closed-loop performance test.
+
+Upstream references: [VisualNav / ViNT / NoMaD](https://github.com/robodhruv/visualnav-transformer)
+and [Diffusion Policy](https://github.com/real-stanford/diffusion_policy).

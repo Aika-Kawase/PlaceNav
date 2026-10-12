@@ -1,0 +1,46 @@
+## Large, obstacle-free Stage world for PlaceNav/TEB integration tests.
+resolution 0.02
+interval_sim 100
+
+define test_robot position
+(
+  size [ 0.25 0.25 0.40 ]
+  localization "gps"
+  gui_nose 1
+  drive "diff"
+  color "red"
+)
+
+define boundary_wall model
+(
+  color "gray30"
+  obstacle_return 1
+  laser_return 1
+)
+
+# stage_ros uses /robot_0/* only when multiple position models exist. Keep this
+# tiny stationary model outside the selectable test area for topic compatibility.
+define namespace_anchor position
+(
+  size [ 0.05 0.05 0.05 ]
+  localization "gps"
+  drive "omni"
+  color "gray30"
+)
+
+boundary_wall(name "north_wall" size [12.0 0.10 1.0] pose [0.0 6.0 0.5 0.0])
+boundary_wall(name "south_wall" size [12.0 0.10 1.0] pose [0.0 -6.0 0.5 0.0])
+boundary_wall(name "east_wall" size [0.10 12.0 1.0] pose [6.0 0.0 0.5 0.0])
+boundary_wall(name "west_wall" size [0.10 12.0 1.0] pose [-6.0 0.0 0.5 0.0])
+
+test_robot
+(
+  pose [ -2.0 0.0 0.0 -90.0 ]
+  name "myRobot"
+)
+
+namespace_anchor
+(
+  pose [ 5.8 5.8 0.0 0.0 ]
+  name "namespaceAnchor"
+)
