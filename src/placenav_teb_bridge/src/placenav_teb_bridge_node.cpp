@@ -154,7 +154,9 @@ private:
 
   bool setActivePlan(const nav_msgs::Path& path, const char* source)
   {
-    if (has_active_plan_ && plansEquivalent(path, active_plan_))
+    // After reaching an endpoint, an equivalent new path must reactivate TEB.
+    // Deduplicate only while the previous plan is still usable.
+    if (has_plan_ && has_active_plan_ && plansEquivalent(path, active_plan_))
     {
       return true;
     }

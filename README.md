@@ -414,12 +414,25 @@ comparisons; predictions are not averaged across different routes. Identical
 inputs are reproducible on a given setup, but this does not guarantee identical
 results across hardware/PyTorch versions or ROS message timing.
 
-The new models' normalized XY outputs are converted with the official deployment
-scale `max_v / frame_rate` (WHILL currently 0.4 / 5 = 0.08 m per normalized unit).
+The new models' normalized XY outputs are converted using `metric_scale` in
+`src/config/models.yaml`. A positive finite number specifies meters per normalized
+unit independently of velocity limits. ViNT and NoMaD currently use **0.16** as a
+bag-replay trial setting, twice the previous WHILL scale of 0.08; this is not a
+calibrated metric conversion or a guarantee of better obstacle avoidance.
+Set `metric_scale: robot_step` to restore the official deployment conversion
+`max_v / frame_rate` (WHILL: 0.4 / 5 = 0.08). Missing `metric_scale` defaults to 1.0.
 This conversion applies to **all** output points, including `/waypoint` and
 `/toponav/viz_info`, before TF conversion. Legacy GNM scaling remains unchanged
 for regression compatibility; take this difference into account in comparisons.
 Do not interpret a longer/shorter displayed path as model accuracy alone.
+Changing the scale changes turn locations as well as path length. Compare the
+paths against scene geometry in the same bag before vehicle trials.
+
+The TEB bridge now reapplies a newly received path after endpoint completion even
+when it is within the path-equivalence thresholds of the previous path. Previously
+that update could be skipped while `has_plan_` remained false, leaving the bridge
+stopped. Active equivalent plans are still deduplicated. This does not remove TEB's
+endpoint stop or change the avoidance/recovery transition conditions.
 
 For compatibility, the output topic is still called `/placenav/gnm_path` for all
 models. The wrapper configures the adapter for 5 or 8 points. It adds the robot

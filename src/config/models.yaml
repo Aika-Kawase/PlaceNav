@@ -18,7 +18,9 @@ vint:
   context_size: 5
   len_traj_pred: 5
   normalize: true
-  metric_scale: robot_step # official deployment: max_v / frame_rate
+  # Trial XY scale: twice the previous WHILL 0.4/5=0.08; validate in bag replay.
+  # Use robot_step to restore upstream max_v/frame_rate conversion.
+  metric_scale: 0.16
   learn_angle: true
   obs_encoder: efficientnet-b0
   obs_encoding_size: 512
@@ -34,7 +36,8 @@ nomad:
   context_size: 3
   len_traj_pred: 8
   normalize: true
-  metric_scale: robot_step
+  # Trial XY scale, independent of speed limits (robot_step restores upstream).
+  metric_scale: 0.16
   learn_angle: false
   encoding_size: 256
   mha_num_attention_heads: 4

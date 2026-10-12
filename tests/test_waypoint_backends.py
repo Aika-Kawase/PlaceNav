@@ -6,7 +6,7 @@ import torch
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from placenav.waypoint_backends import decode_actions, NoMaDAdapter
+from placenav.waypoint_backends import decode_actions, NoMaDAdapter, resolve_waypoint_scale
 
 
 class FakeNoMaD(torch.nn.Module):
@@ -20,6 +20,20 @@ class FakeNoMaD(torch.nn.Module):
 
 
 class WaypointTests(unittest.TestCase):
+    def test_metric_scale_modes(self):
+        robot = {"max_v": 0.4, "frame_rate": 5}
+        self.assertEqual(resolve_waypoint_scale({}, robot), 1.0)
+        self.assertAlmostEqual(resolve_waypoint_scale({"metric_scale": "robot_step"}, robot), 0.08)
+        for robot_config in (robot, {"max_v": 0.2, "frame_rate": 10}):
+            self.assertEqual(resolve_waypoint_scale({"metric_scale": 0.16}, robot_config), 0.16)
+
+    def test_invalid_metric_scales(self):
+        for value in (0, -1, float("nan"), float("inf"), None, True, "typo"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                resolve_waypoint_scale({"metric_scale": value}, {})
+        with self.assertRaises(ValueError):
+            resolve_waypoint_scale({"metric_scale": "robot_step"}, {"max_v": 0.4, "frame_rate": 0})
+
     def test_decode_bounds_and_cumulative_sum(self):
         sample = torch.tensor([[[-1., -1.], [1., 1.], [0., 0.]]])
         torch.testing.assert_close(decode_actions(sample),
