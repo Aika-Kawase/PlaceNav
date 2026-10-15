@@ -508,3 +508,117 @@ existing avoidance plan unchanged. Set the private parameter
 The original avoidance seed remains fixed; this is not a full global planner
 or a guarantee of forward-only motion. Validate detours, corners and fluctuating
 PlaceNav endpoints in bag replay before supervised low-speed real-robot trials.
+
+### Rolling avoidance replanning (current default)
+
+`rolling_replan_enabled: true` replaces the fixed avoidance seed and direct
+PlaceNav-endpoint connector described above. `avoidance_use_placenav_goal: false`
+is preserved; it controls only the legacy mode when rolling replanning is disabled.
+The legacy radial/corridor obstacle trigger settings also apply only to legacy mode.
+No speed limits, footprint dimensions, or depth height thresholds were relaxed.
+
+* NORMAL: prune the passed part of the latest PlaceNav reference, include the
+  connection from the current robot pose, and check its swept polygon footprint.
+* AVOIDING: when that reference cannot be used, select forward local goals around
+  a rate-limited PlaceNav direction. Search a bounded 8-heading SE(2) lattice on a
+  snapshot of the costmap. Translation, in-place turning, filled footprint cells,
+  clearance, unknown cells and map boundaries are checked. This is a reference
+  search, not a new learned prediction or a global route planner.
+* Prefer the previous forward endpoint while it is still far enough away and
+  reachable (side-switch hysteresis); re-search the ENTIRE reference from the
+  current robot pose. There is no fixed 1.2 m prefix and no unconditional straight
+  connector to the model's last point. Direction adds a weak search cost.
+* Renew before the endpoint: remaining path length is compared to the larger of
+  `renewal_distance` and `abs(v)*renewal_latency + v*v/(2*acc_lim_x) + 0.2`.
+  The configured acceleration limit is a braking estimate, not a measured robot
+  stopping guarantee. Updates are attempted every `replan_interval` (0.2 s near
+  the endpoint). Search is bounded by time and expansions.
+* A candidate is accepted only after TEB produces a valid finite command without
+  reporting endpoint arrival. TEB feasibility checking covers all poses. A fresh
+  costmap/robot pose then revalidates the reference and a short swept-command
+  horizon before publishing. TEB still applies its own kinematic constraints.
+* If renewal fails, a freshly checked usable previous path may continue through
+  a NEW TEB velocity computation. Old velocity is never replayed. With no usable
+  path/command the bridge publishes zero, and retries rather than forcing recovery.
+* RECOVERING: the connection plus latest normal path must be collision-free,
+  long enough, and continuously acceptable for `avoidance_clear_time`. Large goal
+  jumps reset this interval. A wall remaining beside the corridor does not by itself
+  prevent recovery. Unsafe recovery returns to AVOIDING; stable recovery becomes
+  NORMAL after `recovery_stable_time`.
+
+The bridge checks the timestamps AND wall-time receipt of path, nonempty depth
+cloud and odometry (`input_timeout: 1.0`), robot TF, cloud TF and costmap currency.
+An independent wall timer publishes zero if control stops completing within
+`control_watchdog_timeout: 0.6`, including a paused bag clock. Slow computations
+are not allowed to publish a late nonzero result. This is an application watchdog,
+not a replacement for a motor-driver command timeout or hardware emergency stop.
+
+`/toponav/reached_goal` (Bool) is now latched by PlaceNav and subscribed by the
+bridge. A true value stops navigation independently of a local path endpoint;
+false does NOT automatically release the stop. This trusts PlaceNav's existing
+final-node recognition; it does not improve its physical goal accuracy. For a
+new mission, restart bridge or explicitly reset after checking it is safe:
+
+```bash
+rosservice call /placenav_teb_bridge/reset_navigation "{}"
+```
+
+Reset discards the current reference and requires a new PlaceNav path. It does
+not clear `/toponav/stop`. The reset service is not an emergency-stop override.
+
+Observe and record both:
+
+```bash
+rostopic echo /placenav_teb_bridge/navigation_state
+rostopic echo /placenav_teb_bridge/control_status
+```
+
+`control_status` is latched and emitted on change; velocity is emitted each
+completed cycle (or by the wall watchdog). Reasons include:
+
+| Status | Meaning |
+|---|---|
+| RUNNING | A newly validated reference/command was accepted |
+| RUNNING_VALID_PREVIOUS_PATH | Renewal did not replace the reference; previous path rechecked and command recomputed |
+| ENDPOINT_WAIT | Intermediate endpoint reached with no accepted continuation |
+| PLANNING_FAILED | No accepted reference/TEB command; not reported as final-goal arrival |
+| INPUT_STALE_PATH / CLOUD / ODOM | Required input missing, old or not arriving |
+| TF_UNAVAILABLE / TF_CLOUD_UNAVAILABLE | Robot/cloud transform unavailable |
+| COSTMAP_STALE / TF_OR_COSTMAP_UNAVAILABLE | Map/pose cannot be used |
+| FOOTPRINT_BLOCKED / PATH_INVALIDATED | Current footprint or revalidated path/command is blocked |
+| DIRECTION_UNAVAILABLE | No trustworthy forward direction and no usable previous plan |
+| CLOCK_RESET / CLOCK_OR_CONTROL_STALLED | Time moved backward or wall watchdog expired |
+| CONTROL_DEADLINE_EXCEEDED / INPUT_STALE_DURING_PLAN | Computation result became too late to use |
+| FINAL_GOAL_REACHED / STOP_REQUESTED | Final-goal latch or explicit stop |
+
+`Rolling search` logs include candidate point count, search milliseconds, remaining
+length and renewal threshold. The current defaults are horizon 2 m, clearance
+0.25 m outside the padded footprint, search budget 0.12 s / 12000 expansions,
+direction weight 0.3, direction rate 0.8 rad/s and recovery connection <=0.6 m.
+The target may be shortened or unavailable near a map boundary. The 8-heading
+lattice can reject paths a more capable planner might find; a search timeout is
+NOT proof that the physical scene is impassable. Conservative stops are expected.
+
+After rebuilding `placenav_teb_bridge`, restart PlaceNav and bridge. For bag tests
+set `/use_sim_time` BEFORE starting nodes, replay `--clock` plus camera, pointcloud,
+odom and TF only. Do not replay old plans, commands or goal notifications while
+running new inference. Use an unconnected test velocity topic. To A/B the prior
+behavior, set `rolling_replan_enabled: false` and leave the connector disabled.
+
+Tests (ROS environment sourced; integration starts its OWN master and publishes
+only `/rolling_test/cmd_vel`, with synthetic map/TF/inputs, not a real driver):
+
+```bash
+g++ -O2 -std=c++14 tests/test_rolling_planner.cpp -o /tmp/test_rolling_planner
+/tmp/test_rolling_planner
+python3 tests/test_rolling_bridge_ros.py --binary /path/to/new/placenav_teb_bridge_node
+```
+
+The tests cover detour search, endpoint renewal, swept-footprint collision,
+unknown/map boundary rejection, unreachable paths, input/TF staleness, recovery,
+final-goal latch/reset, distinct stop reasons and paused-clock stopping. They do
+not establish real-robot success. In particular, `track_unknown_space: false`
+can represent unobserved areas as free and `min_obstacle_height: 0.45` misses low
+obstacles. Validation is against the AVAILABLE costmap, not ground-truth safety.
+Check perception, bag timing, model outputs, braking and narrow/corner geometry
+before any supervised low-speed robot trial.

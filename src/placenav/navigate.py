@@ -259,7 +259,8 @@ class PlaceNavNode:
         self.goal_pub = rospy.Publisher(
             self.robot_config['reached_goal_topic'],
             Bool,
-            queue_size=1)
+            queue_size=1,
+            latch=True)
         
         self.viz_pub = rospy.Publisher(
             self.robot_config['toponav_viz_info_topic'],
