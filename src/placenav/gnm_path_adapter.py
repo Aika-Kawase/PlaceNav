@@ -10,6 +10,7 @@ import tf2_ros
 from geometry_msgs.msg import Point, PoseStamped, Quaternion
 from nav_msgs.msg import Path
 from placenav_viz_msgs.msg import Viz
+from placenav.path_horizon import extend_horizon
 
 
 XY = Tuple[float, float]
@@ -49,10 +50,13 @@ def local_poses(
     stamp: rospy.Time,
     frame_id: str,
     include_origin: bool,
+    target_length: float = 0.0,
 ) -> List[PoseStamped]:
     points = [(point.x, point.y) for point in waypoints]
     if include_origin:
         points.insert(0, (0.0, 0.0))
+
+    points = extend_horizon(points, target=target_length)
 
     yaws = waypoint_yaws(points)
     poses = []
@@ -75,6 +79,9 @@ class GnmPathAdapter:
         self.target_frame = rospy.get_param("~target_frame", "odom")
         self.include_origin = rospy.get_param("~include_origin", True)
         self.expected_waypoints = rospy.get_param("~expected_waypoints", 5)
+        self.target_length = rospy.get_param("~target_length", 0.0)
+        if not math.isfinite(self.target_length) or not 0 <= self.target_length <= 3.0:
+            raise ValueError("target_length must be between 0 and 3 metres")
         self.transform_timeout = rospy.Duration(
             rospy.get_param("~transform_timeout", 0.2)
         )
@@ -85,6 +92,7 @@ class GnmPathAdapter:
         self.viz_subscriber = rospy.Subscriber(
             self.input_topic, Viz, self.viz_callback, queue_size=1
         )
+        rospy.loginfo("TEB guidance target length=%.2f m (bounded extrapolation, not model prediction)", self.target_length)
 
         rospy.loginfo(
             "GNM path adapter: %s (%s) -> %s (%s)",
@@ -97,6 +105,9 @@ class GnmPathAdapter:
     def viz_callback(self, message: Viz):
         if not message.waypoints:
             rospy.logwarn_throttle(2.0, "GNM path contains no waypoints")
+            return
+        if not all(math.isfinite(p.x) and math.isfinite(p.y) for p in message.waypoints):
+            rospy.logwarn_throttle(2.0, "Rejecting non-finite waypoints")
             return
         if len(message.waypoints) != self.expected_waypoints:
             rospy.logwarn_throttle(
@@ -138,6 +149,7 @@ class GnmPathAdapter:
                 message.query_timestamp,
                 self.source_frame,
                 self.include_origin,
+                self.target_length,
             )
         ]
         for pose in path.poses:
@@ -156,6 +168,7 @@ def parse_args():
     parser.add_argument("--transform-timeout", type=float, default=0.2)
     parser.add_argument("--expected-waypoints", type=int, default=5)
     parser.add_argument("--no-origin", action="store_true")
+    parser.add_argument("--target-length", type=float, default=0.0)
     return parser.parse_args(rospy.myargv()[1:])
 
 
@@ -169,6 +182,7 @@ def main():
     rospy.set_param("~transform_timeout", args.transform_timeout)
     rospy.set_param("~expected_waypoints", args.expected_waypoints)
     rospy.set_param("~include_origin", not args.no_origin)
+    rospy.set_param("~target_length", args.target_length)
     GnmPathAdapter()
     rospy.spin()
 

@@ -24,6 +24,7 @@ usage()
       'Usage: ./navigate_whill.sh --topomap-dir ROUTE [PlaceNav options]' \
       '  --pr-model cosplace|megaloc|salad|anyloc (default: cosplace)' \
       '  --wp-model gnm_large|vint|nomad (default: gnm_large)' \
+      '  --path-target-length METRES (ViNT/NoMaD: 2.0, GNM: 0; 0 disables extrapolation)' \
       '' \
       'Starts inference and the GUI visualization. Use --no-visualization to suppress the GUI.' \
       'Starts the GNM Path adapter. Use --no-path-adapter to suppress it.' \
@@ -38,11 +39,16 @@ fi
 TOPOMAP_DIR=""
 PR_MODEL="cosplace"
 WP_MODEL="gnm_large"
+PATH_TARGET_LENGTH=""
 SHOW_VISUALIZATION=1
 START_PATH_ADAPTER=1
 NAV_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --path-target-length)
+            PATH_TARGET_LENGTH="$2"
+            shift 2
+            ;;
         --wp-model)
             WP_MODEL="$2"
             NAV_ARGS+=("$1" "$2")
@@ -96,7 +102,13 @@ PATH_ADAPTER_PID=""
 if [[ "${START_PATH_ADAPTER}" -eq 1 ]]; then
     EXPECTED_WAYPOINTS=5
     [[ "${WP_MODEL}" != "nomad" ]] || EXPECTED_WAYPOINTS=8
-    "${SCRIPT_DIR}/run_gnm_path_adapter_whill.sh" --expected-waypoints "${EXPECTED_WAYPOINTS}" &
+    if [[ -z "${PATH_TARGET_LENGTH}" ]]; then
+        PATH_TARGET_LENGTH=0
+        if [[ "${WP_MODEL}" == "vint" || "${WP_MODEL}" == "nomad" ]]; then
+            PATH_TARGET_LENGTH=2.0
+        fi
+    fi
+    "${SCRIPT_DIR}/run_gnm_path_adapter_whill.sh" --expected-waypoints "${EXPECTED_WAYPOINTS}" --target-length "${PATH_TARGET_LENGTH}" &
     PATH_ADAPTER_PID=$!
 fi
 

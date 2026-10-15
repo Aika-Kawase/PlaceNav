@@ -464,3 +464,29 @@ This synthetic smoke test is not a bag-replay or closed-loop performance test.
 
 Upstream references: [VisualNav / ViNT / NoMaD](https://github.com/robodhruv/visualnav-transformer)
 and [Diffusion Policy](https://github.com/real-stanford/diffusion_policy).
+# Short waypoint horizon trial (ViNT / NoMaD)
+
+`navigate_whill.sh` now defaults to `--path-target-length 2.0` for ViNT
+and NoMaD; GNM remains unextended. Set `--path-target-length 0` to restore
+the previous behavior. XY metric scale remains 0.16; speed limits are unchanged.
+
+The adapter preserves all model-predicted points and appends a straight
+terminal-tangent continuation, at most 1.5 m, with spacing at most 0.1 m.
+Only forward terminal headings within 60 degrees and predictions with at least
+0.2 m length and forward displacement qualify. Short, lateral or backward
+predictions are deliberately not forced to the target length. This is a
+bounded heuristic, NOT additional model prediction or a guarantee of free space.
+The requested target is arc length, not forward clearance from the footprint.
+`/toponav/viz_info` and `/waypoint` retain the original prediction;
+`/placenav/gnm_path` contains the extended guidance after TF transformation.
+
+TEB still checks the costmap and emits zero velocity on planning failure.
+Obstacle triggering now measures distance to path segments, not only vertices.
+An avoidance endpoint no longer directly causes recovery: the existing
+obstacle-clear interval decides recovery. This may safely stop at a blocked
+endpoint; continuous renewal of the avoidance seed is not implemented here.
+
+Validate with bag replay and a disconnected test command topic first: compare
+raw and extended paths, check curb/fence detection and turns, final-goal stopping,
+and mode transitions. Extrapolation can aim beyond a corner or final goal;
+disable it if these checks fail. No real-robot safety validation is claimed.

@@ -15,6 +15,15 @@ import rospy
 
 
 class WaypointYawsTest(unittest.TestCase):
+    def test_extended_guidance_poses(self):
+        messages = waypoints_to_ros_msg(np.array([[.1, 0], [.55, 0]]))
+        poses = local_poses(messages, rospy.Time(12), "base_link", True, 2.0)
+        self.assertAlmostEqual(poses[2].pose.position.x, .55)
+        self.assertAlmostEqual(poses[-1].pose.position.x, 2.0)
+        self.assertEqual(poses[-1].header.frame_id, "base_link")
+        self.assertEqual(poses[-1].header.stamp, rospy.Time(12))
+        self.assertAlmostEqual(poses[-1].pose.orientation.w, 1.0)
+
     def test_nomad_xy_and_vint_xy_heading_to_path(self):
         for count, width in ((8, 2), (5, 4)):
             points = np.zeros((count, width))

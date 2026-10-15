@@ -215,10 +215,17 @@ private:
     const double x, const double y, const nav_msgs::Path& path)
   {
     double best = std::numeric_limits<double>::infinity();
-    for (const auto& pose : path.poses)
+    for (std::size_t i = 0; i < path.poses.size(); ++i)
     {
-      const double dx = x - pose.pose.position.x;
-      const double dy = y - pose.pose.position.y;
+      const auto& a = path.poses[i].pose.position;
+      const auto& b = path.poses[std::min(i + 1, path.poses.size() - 1)].pose.position;
+      const double sx = b.x - a.x;
+      const double sy = b.y - a.y;
+      const double len2 = sx * sx + sy * sy;
+      const double t = len2 > 1e-12 ?
+        std::max(0.0, std::min(1.0, ((x - a.x) * sx + (y - a.y) * sy) / len2)) : 0.0;
+      const double dx = x - (a.x + t * sx);
+      const double dy = y - (a.y + t * sy);
       best = std::min(best, dx * dx + dy * dy);
     }
     return best;
@@ -357,9 +364,12 @@ private:
         command_valid = teb_planner_.computeVelocityCommands(command);
         if (teb_planner_.isGoalReached())
         {
-          if (state_ == NavigationState::AVOIDING && has_latest_placenav_path_)
+          if (state_ == NavigationState::AVOIDING)
           {
-            transitionToRecovering();
+            // Recovery is decided only by updateNavigationState after the
+            // obstacle-clear interval, not by reaching a short local endpoint.
+            // Keep replanning the held avoidance seed; never reuse old velocity.
+            ROS_WARN_THROTTLE(1.0, "Avoidance endpoint reached; holding until obstacle-clear recovery");
           }
           else
           {
