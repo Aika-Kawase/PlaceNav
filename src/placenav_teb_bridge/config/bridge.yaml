@@ -15,6 +15,7 @@ obstacle_cost_threshold: 253
 avoidance_clear_time: 1.0
 recovery_stable_time: 1.0
 minimum_avoidance_plan_poses: 3
+avoidance_use_placenav_goal: false
 
 # Initial WHILL parameters validated with recorded real-robot data. Continue
 # low-speed validation for low obstacles and outdoor conditions.
