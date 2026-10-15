@@ -17,6 +17,7 @@
 #include <tf2/utils.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
+#include "avoidance_guidance.h"
 
 class PlaceNavTebBridge
 {
@@ -43,6 +44,7 @@ public:
     private_nh_.param("avoidance_clear_time", avoidance_clear_time_, 1.0);
     private_nh_.param("recovery_stable_time", recovery_stable_time_, 1.0);
     private_nh_.param("minimum_avoidance_plan_poses", minimum_avoidance_plan_poses_, 3);
+    private_nh_.param("avoidance_use_placenav_goal", avoidance_use_placenav_goal_, true);
 
     if (controller_frequency_ <= 0.0)
     {
@@ -116,6 +118,7 @@ private:
     // it overwrite the promoted TEB avoidance path.
     if (state_ == NavigationState::AVOIDING)
     {
+      refreshAvoidanceGuidance();
       return;
     }
 
@@ -294,11 +297,53 @@ private:
     {
       return;
     }
+    avoidance_seed_ = latest_teb_local_path_;
+    refreshAvoidanceGuidance();
     state_ = NavigationState::AVOIDING;
     state_entered_at_ = ros::Time::now();
     last_obstacle_at_ = state_entered_at_;
     publishState();
     ROS_WARN("Navigation state: NORMAL/RECOVERING -> AVOIDING");
+  }
+
+  void refreshAvoidanceGuidance()
+  {
+    if (!avoidance_use_placenav_goal_ || !has_latest_placenav_path_ ||
+        avoidance_seed_.header.frame_id != latest_placenav_path_.header.frame_id ||
+        avoidance_seed_.header.frame_id != costmap_ros_->getGlobalFrameID()) return;
+    geometry_msgs::PoseStamped robot;
+    if (!costmap_ros_->getRobotPose(robot)) return;
+    // Refuse stale observations; this does not extend the lifetime of old inputs.
+    const double age = (ros::Time::now()-latest_placenav_path_.header.stamp).toSec();
+    if (age < -0.1 || age > 1.0) return;
+    std::vector<avoidance_guidance::Point> seed, route;
+    for (const auto& p : avoidance_seed_.poses)
+      seed.push_back({p.pose.position.x, p.pose.position.y});
+    for (const auto& p : latest_placenav_path_.poses)
+      route.push_back({p.pose.position.x, p.pose.position.y});
+    if (route.empty()) return;
+    const double yaw=tf2::getYaw(robot.pose.orientation);
+    const double gx=route.back().x-robot.pose.position.x;
+    const double gy=route.back().y-robot.pose.position.y;
+    if (gx*std::cos(yaw)+gy*std::sin(yaw) < 0.3) return;
+    const auto points=avoidance_guidance::blend(seed, route,
+      {robot.pose.position.x, robot.pose.position.y}, 1.2, 2.0);
+    if (points.empty()) return;
+    nav_msgs::Path guidance;
+    guidance.header=latest_placenav_path_.header;
+    for (std::size_t i=0; i<points.size(); ++i) {
+      geometry_msgs::PoseStamped pose;
+      pose.header=guidance.header;
+      pose.pose.position.x=points[i].x;
+      pose.pose.position.y=points[i].y;
+      const auto a=points[i ? i-1 : 0];
+      const auto b=points[i+1<points.size() ? i+1 : i];
+      const double heading=std::atan2(b.y-a.y,b.x-a.x);
+      pose.pose.orientation.z=std::sin(heading/2);
+      pose.pose.orientation.w=std::cos(heading/2);
+      guidance.poses.push_back(pose);
+    }
+    setActivePlan(guidance, "TEB avoidance prefix + latest PlaceNav forward goal");
   }
 
   void transitionToRecovering()
@@ -439,6 +484,8 @@ private:
   nav_msgs::Path latest_placenav_path_;
   nav_msgs::Path latest_teb_local_path_;
   nav_msgs::Path active_plan_;
+  nav_msgs::Path avoidance_seed_;
+  bool avoidance_use_placenav_goal_{true};
   bool has_latest_placenav_path_{false};
   bool has_latest_teb_local_path_{false};
   bool has_active_plan_{false};

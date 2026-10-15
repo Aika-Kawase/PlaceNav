@@ -490,3 +490,21 @@ Validate with bag replay and a disconnected test command topic first: compare
 raw and extended paths, check curb/fence detection and turns, final-goal stopping,
 and mode transitions. Extrapolation can aim beyond a corner or final goal;
 disable it if these checks fail. No real-robot safety validation is claimed.
+
+### PlaceNav direction during avoidance
+
+The bridge now defaults `avoidance_use_placenav_goal` to true. It retains the
+promoted TEB seed's near prefix (up to 1.2 m from its point nearest the robot)
+and connects it to the latest PlaceNav endpoint, rather than following every
+PlaceNav waypoint during avoidance. The candidate is sent back to TEB for
+costmap-aware optimization and velocity feasibility checks. This connector is
+not itself a validated collision-free path.
+
+Updates are attempted on each new PlaceNav path. They require matching global
+frames, observation age <=1 second, a forward endpoint, forward progress beyond
+the retained prefix, and a connection <=2 m. Rejected connections leave the
+existing avoidance plan unchanged. Set the private parameter
+`avoidance_use_placenav_goal: false` to restore pure TEB-seed holding.
+The original avoidance seed remains fixed; this is not a full global planner
+or a guarantee of forward-only motion. Validate detours, corners and fluctuating
+PlaceNav endpoints in bag replay before supervised low-speed real-robot trials.
