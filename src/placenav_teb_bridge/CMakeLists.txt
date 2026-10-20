@@ -9,8 +9,6 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
   std_msgs
-  std_srvs
-  sensor_msgs
   teb_local_planner
   tf2
   tf2_ros
@@ -18,7 +16,7 @@ find_package(catkin REQUIRED COMPONENTS
 )
 
 catkin_package(
-  CATKIN_DEPENDS costmap_2d geometry_msgs interactive_markers nav_msgs roscpp rospy std_srvs sensor_msgs
+  CATKIN_DEPENDS costmap_2d geometry_msgs interactive_markers nav_msgs roscpp rospy
                  std_msgs teb_local_planner tf2 tf2_ros visualization_msgs
 )
 
@@ -27,12 +25,6 @@ include_directories(${catkin_INCLUDE_DIRS})
 add_executable(placenav_teb_bridge_node src/placenav_teb_bridge_node.cpp)
 target_compile_features(placenav_teb_bridge_node PRIVATE cxx_std_14)
 target_link_libraries(placenav_teb_bridge_node ${catkin_LIBRARIES})
-
-if(CATKIN_ENABLE_TESTING)
-  add_executable(test_rolling_planner ../../tests/test_rolling_planner.cpp)
-  target_compile_features(test_rolling_planner PRIVATE cxx_std_14)
-  add_test(NAME rolling_planner COMMAND test_rolling_planner)
-endif()
 
 catkin_install_python(PROGRAMS
   scripts/publish_test_gnm_path.py

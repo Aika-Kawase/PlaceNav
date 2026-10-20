@@ -1,6 +1,5 @@
 """Goal-conditioned ViNT / NoMaD adapters. No downloads during navigation."""
 from pathlib import Path
-import math
 import sys
 
 import torch
@@ -8,26 +7,6 @@ from torch import nn
 
 VISUALNAV_REV = "dca79815b704e5aa9c6bdc3082351f9e3b2848c2"
 DIFFUSION_REV = "5ba07ac6661db573af695b419a7947ecb704690f"
-
-
-def resolve_waypoint_scale(model_config, robot_config):
-    """Resolve normalized XY scaling independently of the velocity limit."""
-    value = model_config.get("metric_scale", 1.0)
-    if value == "robot_step":
-        max_v = float(robot_config["max_v"])
-        frame_rate = float(robot_config["frame_rate"])
-        if not all(math.isfinite(v) and v > 0 for v in (max_v, frame_rate)):
-            raise ValueError("robot_step requires positive finite max_v and frame_rate")
-        value = max_v / frame_rate
-    if isinstance(value, bool):
-        raise ValueError("metric_scale must be robot_step or a positive finite number")
-    try:
-        scale = float(value)
-    except (TypeError, ValueError):
-        raise ValueError("metric_scale must be robot_step or a positive finite number")
-    if not math.isfinite(scale) or scale <= 0:
-        raise ValueError("metric_scale must be robot_step or a positive finite number")
-    return scale
 
 
 def waypoint_transform(image_size):

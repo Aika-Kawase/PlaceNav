@@ -215,8 +215,8 @@ class PlaceNavNode:
         model_config = model_configs[model]
         model_config["img_size"] = img_size
         model_config["seed"] = self._nomad_seed
-        from placenav.waypoint_backends import resolve_waypoint_scale
-        self.waypoint_scale = resolve_waypoint_scale(model_config, self.robot_config)
+        self.waypoint_scale = (self.robot_config["max_v"] / self.robot_config["frame_rate"]
+                               if model_config.get("metric_scale") == "robot_step" else 1.0)
         rospy.loginfo("Waypoint backend=%s, image=%s, points=%d, XY scale=%g",
                       model, img_size, model_config["len_traj_pred"], self.waypoint_scale)
 
@@ -259,8 +259,7 @@ class PlaceNavNode:
         self.goal_pub = rospy.Publisher(
             self.robot_config['reached_goal_topic'],
             Bool,
-            queue_size=1,
-            latch=True)
+            queue_size=1)
         
         self.viz_pub = rospy.Publisher(
             self.robot_config['toponav_viz_info_topic'],

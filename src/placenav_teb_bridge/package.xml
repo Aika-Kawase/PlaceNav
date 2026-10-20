@@ -16,8 +16,6 @@
   <depend>roscpp</depend>
   <depend>rospy</depend>
   <depend>std_msgs</depend>
-  <depend>std_srvs</depend>
-  <depend>sensor_msgs</depend>
   <depend>teb_local_planner</depend>
   <depend>tf2</depend>
   <depend>tf2_ros</depend>
