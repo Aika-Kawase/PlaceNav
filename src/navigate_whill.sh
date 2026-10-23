@@ -13,6 +13,7 @@ fi
 export QT_X11_NO_MITSHM="${QT_X11_NO_MITSHM:-1}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="${SCRIPT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
 ROBOT_CONFIG="${SCRIPT_DIR}/config/robots.yaml"
 MODEL_CONFIG="${SCRIPT_DIR}/config/models.yaml"
 MODEL_WEIGHT_DIR="${SCRIPT_DIR}/model_weights"
@@ -24,6 +25,8 @@ usage()
       'Usage: ./navigate_whill.sh --topomap-dir ROUTE [PlaceNav options]' \
       '  --pr-model cosplace|megaloc|salad|anyloc (default: cosplace)' \
       '  --wp-model gnm_large|vint|nomad (default: gnm_large)' \
+      '  --nomad-selection single|costmap (default: single)' \
+      '  --nomad-candidates 8 (costmap mode; goal-conditioned only)' \
       '' \
       'Starts inference and the GUI visualization. Use --no-visualization to suppress the GUI.' \
       'Starts the GNM Path adapter. Use --no-path-adapter to suppress it.' \

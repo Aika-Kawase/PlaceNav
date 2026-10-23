@@ -41,6 +41,19 @@ class WaypointTests(unittest.TestCase):
         self.assertEqual(conf["nomad"]["len_traj_pred"], 8)
         self.assertEqual(conf["nomad"]["image_size"], [96, 96])
 
+    def test_multiple_candidates_preserve_baseline_and_are_distinct(self):
+        model = NoMaDAdapter(FakeNoMaD(), {"len_traj_pred": 8, "num_diffusion_iters": 10})
+        obs, goal = torch.zeros(1, 12, 96, 96), torch.zeros(1, 3, 96, 96)
+        baseline = model(obs, goal)[1]
+        dist, candidates = model.sample_candidates(obs, goal, 8)
+        self.assertEqual(candidates.shape, (1, 8, 8, 2))
+        torch.testing.assert_close(candidates[:, 0], baseline)
+        torch.testing.assert_close(candidates, model.sample_candidates(obs, goal, 8)[1])
+        self.assertFalse(torch.equal(candidates[:, 0], candidates[:, 1]))
+        self.assertTrue(torch.isfinite(candidates).all())
+        with self.assertRaises(ValueError):
+            model.sample_candidates(obs, goal, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

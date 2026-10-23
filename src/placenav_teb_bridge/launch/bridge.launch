@@ -5,6 +5,9 @@
   <arg name="robot_base_frame" default="base_link"/>
   <arg name="odom_topic" default="/odom"/>
   <arg name="stvl_topic" default="/c2/depth/points"/>
+  <!-- Opt-in so the single-path baseline remains unchanged. Use 1.0 for
+       candidate comparison on BOTH A and C runs. -->
+  <arg name="path_timeout" default="0.0"/>
 
   <node pkg="placenav_teb_bridge"
         type="placenav_teb_bridge_node"
@@ -12,6 +15,7 @@
         output="screen">
     <rosparam command="load" file="$(arg config)"/>
     <param name="cmd_vel_topic" value="$(arg cmd_vel_topic)"/>
+    <param name="path_timeout" value="$(arg path_timeout)"/>
     <param name="local_costmap/global_frame" value="$(arg global_frame)"/>
     <param name="local_costmap/robot_base_frame" value="$(arg robot_base_frame)"/>
     <param name="TebLocalPlannerROS/odom_topic" value="$(arg odom_topic)"/>

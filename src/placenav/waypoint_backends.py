@@ -49,14 +49,28 @@ class NoMaDAdapter(nn.Module):
             clip_sample=True, prediction_type="epsilon")
 
     def forward(self, observation, goal):
+        distance, candidates = self.sample_candidates(observation, goal, 1)
+        return distance, candidates[:, 0]
+
+    def sample_candidates(self, observation, goal, count):
+        """B x N x H x 2; candidate zero exactly preserves the baseline seed.
+
+        Encode images once, decode independent candidates sequentially. Do not
+        average paths or enable goal-free exploration.
+        """
+        if not isinstance(count, int) or not 1 <= count <= 32:
+            raise ValueError("candidate count must be between 1 and 32")
         # Goal mask=0: follow the VPR-selected image, NOT goal-free exploration.
         cond = self.model("vision_encoder", obs_img=observation, goal_img=goal,
                           input_goal_mask=torch.zeros(observation.shape[0],
                                                       device=observation.device, dtype=torch.long))
         distance = self.model("dist_pred_net", obsgoal_cond=cond)
-        # Fixed per-call seed makes repeated inputs reproducible. One trajectory,
-        # never an average of incompatible left/right avoidance hypotheses.
-        generator = torch.Generator(device=observation.device).manual_seed(self.seed)
+        candidates = [self._sample(cond, observation, self.seed + i)
+                      for i in range(count)]
+        return distance, torch.stack(candidates, dim=1)
+
+    def _sample(self, cond, observation, seed):
+        generator = torch.Generator(device=observation.device).manual_seed(seed)
         action = torch.randn((observation.shape[0], self.horizon, 2),
                              device=observation.device, generator=generator)
         self.scheduler.set_timesteps(self.steps)
@@ -64,7 +78,7 @@ class NoMaDAdapter(nn.Module):
             noise = self.model("noise_pred_net", sample=action, timestep=timestep,
                                global_cond=cond)
             action = self.scheduler.step(noise, timestep, action, generator=generator).prev_sample
-        return distance, decode_actions(action)
+        return decode_actions(action)
 
 
 def load_waypoint_backend(path, config, device):

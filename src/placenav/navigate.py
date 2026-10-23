@@ -88,6 +88,11 @@ class PlaceNavNode:
             )
         
         self._setup_ros()
+        self.multi_candidate = args.nomad_selection == "costmap"
+        self.candidate_selector = None
+        if args.wp_model == "nomad":
+            from placenav.nomad_selection_ros import CandidateSelector
+            self.candidate_selector = CandidateSelector(args)
 
         if args.subgoal_mode == 'place_recognition':
             ready_tmp_path = self._place_recognition_ready_path.with_suffix(
@@ -348,9 +353,29 @@ class PlaceNavNode:
                     sg_img = self.topomap_images[subgoal_idx].to(self.device)
 
                     # Predict the waypoints to subgoal
+                    inference_start = time.monotonic()
                     with torch.no_grad():
-                        _, waypoints = self.waypoint_model(context, sg_img)
-                    waypoints = to_numpy(waypoints[0])
+                        if self.multi_candidate:
+                            _, candidates = self.waypoint_model.sample_candidates(
+                                context, sg_img, args.nomad_candidates)
+                            candidates = to_numpy(candidates[0]) * self.waypoint_scale
+                        else:
+                            _, waypoints = self.waypoint_model(context, sg_img)
+                            waypoints = to_numpy(waypoints[0])
+                    inference_seconds = time.monotonic()-inference_start
+                    if self.multi_candidate:
+                        waypoints = self.candidate_selector.select(
+                            candidates, current_obs_timestamp, subgoal_idx,
+                            inference_seconds)
+                        if waypoints is None:
+                            # Empty Viz is an explicit invalidation, not "keep old plan".
+                            invalid = Viz()
+                            invalid.query_timestamp = current_obs_timestamp
+                            invalid.subgoal_idx = subgoal_idx
+                            self.viz_pub.publish(invalid)
+                            self.waypoint_pub.publish(Float32MultiArray(data=[0., 0.]))
+                            rate.sleep()
+                            continue
 
                 elif args.subgoal_mode == 'temporal_distance':
                     if args.filter_mode == 'bayesian':
@@ -397,7 +422,11 @@ class PlaceNavNode:
                     continue
                 # Official ViNT/NoMaD actions are normalized displacements, not
                 # meters. Preserve legacy GNM behavior; scale only configured models.
-                waypoints[:, :2] *= self.waypoint_scale
+                if not self.multi_candidate:
+                    waypoints[:, :2] *= self.waypoint_scale
+                    if self.candidate_selector is not None and args.subgoal_mode == "place_recognition":
+                        self.candidate_selector.observe_single(
+                            waypoints, current_obs_timestamp, subgoal_idx, inference_seconds)
 
                 # Check if the goal has been reached
                 reached_goal = closest_node_idx == args.goal_node_idx

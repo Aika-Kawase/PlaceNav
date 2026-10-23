@@ -451,3 +451,11 @@ This synthetic smoke test is not a bag-replay or closed-loop performance test.
 
 Upstream references: [VisualNav / ViNT / NoMaD](https://github.com/robodhruv/visualnav-transformer)
 and [Diffusion Policy](https://github.com/real-stanford/diffusion_policy).
+
+### NoMaD candidate selection (PC bag comparison)
+
+`--nomad-selection single` preserves the original single-trajectory output.
+`--nomad-selection costmap --nomad-candidates 8` enables goal-conditioned
+multi-candidate selection with footprint collision rejection and continuity scoring.
+No goal-free exploration is enabled. XY scaling and TEB tuning are unchanged.
+See [comparison commands, safety limits, diagnostics and tests](docs/nomad_candidate_comparison.md).

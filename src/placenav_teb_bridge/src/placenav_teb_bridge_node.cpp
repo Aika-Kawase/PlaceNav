@@ -43,6 +43,9 @@ public:
     private_nh_.param("avoidance_clear_time", avoidance_clear_time_, 1.0);
     private_nh_.param("recovery_stable_time", recovery_stable_time_, 1.0);
     private_nh_.param("minimum_avoidance_plan_poses", minimum_avoidance_plan_poses_, 3);
+    private_nh_.param("path_timeout", path_timeout_, 0.0);
+    if (!std::isfinite(path_timeout_) || path_timeout_ < 0.0)
+      throw std::runtime_error("path_timeout must be finite and nonnegative");
 
     if (controller_frequency_ <= 0.0)
     {
@@ -103,6 +106,13 @@ private:
 
   void pathCallback(const nav_msgs::Path::ConstPtr& path)
   {
+    if (path->poses.empty())
+    {
+      std::lock_guard<std::mutex> lock(planner_mutex_);
+      invalidatePlan();
+      ROS_WARN_THROTTLE(1.0, "No valid candidate: cleared reference and avoidance plans");
+      return;
+    }
     if (!validPath(*path, "GNM Path"))
     {
       return;
@@ -110,6 +120,7 @@ private:
 
     std::lock_guard<std::mutex> lock(planner_mutex_);
     latest_placenav_path_ = *path;
+    latest_path_wall_ = ros::WallTime::now();
     has_latest_placenav_path_ = true;
 
     // Keep receiving the newest PlaceNav path during avoidance, but do not let
@@ -348,11 +359,22 @@ private:
 
     {
       std::lock_guard<std::mutex> lock(planner_mutex_);
+      if (pathExpired())
+      {
+        invalidatePlan();
+        ROS_WARN_THROTTLE(1.0, "Reference path expired; publishing zero velocity");
+        return;
+      }
       updateNavigationState(obstacleBlocksLatestPlaceNavPath());
       had_plan = has_plan_;
       if (has_plan_)
       {
         command_valid = teb_planner_.computeVelocityCommands(command);
+        if (pathExpired())
+        {
+          invalidatePlan();
+          return;
+        }
         if (teb_planner_.isGoalReached())
         {
           if (state_ == NavigationState::AVOIDING && has_latest_placenav_path_)
@@ -378,6 +400,30 @@ private:
       }
     }
     cmd_vel_publisher_.publish(command);
+  }
+
+  bool pathExpired() const
+  {
+    if (path_timeout_ <= 0.0 || !has_latest_placenav_path_)
+      return false;
+    const double age = (ros::Time::now() - latest_placenav_path_.header.stamp).toSec();
+    return latest_placenav_path_.header.stamp.isZero() || age < -0.1 ||
+      age > path_timeout_ || (ros::WallTime::now()-latest_path_wall_).toSec() > path_timeout_;
+  }
+
+  void invalidatePlan()
+  {
+    has_plan_ = has_active_plan_ = has_latest_placenav_path_ = has_latest_teb_local_path_ = false;
+    latest_placenav_path_ = nav_msgs::Path();
+    latest_teb_local_path_ = nav_msgs::Path();
+    active_plan_ = nav_msgs::Path();
+    active_plan_.header.frame_id = costmap_ros_->getGlobalFrameID();
+    active_plan_.header.stamp = ros::Time::now();
+    active_path_publisher_.publish(active_plan_);
+    state_ = NavigationState::NORMAL;
+    last_obstacle_at_ = ros::Time();
+    publishState();
+    publishStop();
   }
 
   void publishState()
@@ -412,6 +458,8 @@ private:
   std::string teb_local_plan_topic_;
   std::string cmd_vel_topic_;
   double controller_frequency_{5.0};
+  double path_timeout_{0.0};
+  ros::WallTime latest_path_wall_;
   double plan_position_epsilon_{0.02};
   double plan_orientation_epsilon_{0.02};
   double obstacle_trigger_distance_{2.5};

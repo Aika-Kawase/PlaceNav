@@ -47,6 +47,16 @@ def parse_args():
     )
     parser.add_argument("--nomad-seed", type=int, default=0,
                         help="per-inference NoMaD diffusion seed (default: 0)")
+    parser.add_argument("--nomad-selection", choices=["single", "costmap"], default="single",
+                        help="single preserves baseline; costmap selects among goal-conditioned candidates")
+    parser.add_argument("--nomad-candidates", type=int, default=8)
+    parser.add_argument("--nomad-costmap-topic",
+                        default="/placenav_teb_bridge/local_costmap/costmap")
+    parser.add_argument("--nomad-base-frame", default="base_link")
+    parser.add_argument("--nomad-clearance", type=float, default=.10,
+                        help="extra footprint margin in metres (not inflation radius)")
+    parser.add_argument("--nomad-continuity-weight", type=float, default=1.)
+    parser.add_argument("--nomad-input-timeout", type=float, default=1.)
     parser.add_argument(
         "--close-threshold",
         "-t",
@@ -168,4 +178,17 @@ def parse_args():
 
 
     args, _ = parser.parse_known_args()
+    import math
+    if not 1 <= args.nomad_candidates <= 32:
+        parser.error("--nomad-candidates must be 1..32")
+    for name in ("nomad_clearance", "nomad_continuity_weight", "nomad_input_timeout"):
+        if not math.isfinite(getattr(args, name)) or getattr(args, name) < 0:
+            parser.error(name + " must be finite and nonnegative")
+    if args.nomad_input_timeout <= 0:
+        parser.error("--nomad-input-timeout must be positive")
+    if args.nomad_selection == "costmap":
+        if args.wp_model != "nomad" or args.subgoal_mode != "place_recognition":
+            parser.error("costmap selection requires NoMaD and place_recognition subgoals")
+        if args.nomad_candidates < 2:
+            parser.error("costmap selection requires at least two candidates")
     return args

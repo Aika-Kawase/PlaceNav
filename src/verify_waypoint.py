@@ -18,6 +18,8 @@ def main():
     parser.add_argument("--device", default="cuda", choices=["cpu", "cuda"])
     parser.add_argument("--weights-dir", type=Path, default=Path(__file__).parent / "model_weights")
     parser.add_argument("--image", type=Path, help="optional actual camera image; otherwise synthetic input")
+    parser.add_argument("--nomad-candidates", type=int, default=1,
+                        help="also validate N candidate generation against the single baseline")
     args = parser.parse_args()
     with (Path(__file__).parent / "config/models.yaml").open() as stream:
         configs = yaml.safe_load(stream)
@@ -41,6 +43,21 @@ def main():
         assert torch.isfinite(action).all() and torch.isfinite(distance).all()
         assert torch.allclose(action, action2, atol=1e-5), "Repeated input differs"
         print(f"PASS {name}: input={w}x{h}, output={tuple(action.shape)}, inference={elapsed:.3f}s")
+        if name == "nomad" and args.nomad_candidates > 1:
+            with torch.no_grad():
+                start = time.perf_counter()
+                _, candidates = model.sample_candidates(obs, goal, args.nomad_candidates)
+                if args.device == "cuda":
+                    torch.cuda.synchronize()
+                multi_elapsed = time.perf_counter()-start
+                _, repeated = model.sample_candidates(obs, goal, args.nomad_candidates)
+            assert candidates.shape == (1, args.nomad_candidates, config["len_traj_pred"], 2)
+            assert torch.isfinite(candidates).all()
+            assert torch.allclose(candidates[:, 0], action, atol=1e-5)
+            assert torch.allclose(candidates, repeated, atol=1e-5)
+            assert not torch.allclose(candidates[:, 0], candidates[:, 1])
+            print(f"PASS nomad candidates={args.nomad_candidates}, inference={multi_elapsed:.3f}s; "
+                  "candidate zero matches baseline; deterministic and distinct")
         del model
     print("Shape/finite/repeatability checks only; this does not establish navigation safety.")
 

@@ -96,7 +96,11 @@ class GnmPathAdapter:
 
     def viz_callback(self, message: Viz):
         if not message.waypoints:
-            rospy.logwarn_throttle(2.0, "GNM path contains no waypoints")
+            rospy.logwarn_throttle(2.0, "Empty waypoint set: invalidating TEB guidance")
+            empty = Path()
+            empty.header.stamp = message.query_timestamp
+            empty.header.frame_id = self.target_frame
+            self.path_publisher.publish(empty)
             return
         if len(message.waypoints) != self.expected_waypoints:
             rospy.logwarn_throttle(
