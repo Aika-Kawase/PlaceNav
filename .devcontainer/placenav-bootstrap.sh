@@ -1,6 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Docker Compose may be started from an SSH shell where DISPLAY is unset even
+# though the host has a local X11 session. In that case, select an available
+# host X socket so OpenCV/RViz windows can still be displayed locally.
+if [ -z "${DISPLAY:-}" ]; then
+  for x_socket in /tmp/.X11-unix/X*; do
+    if [ -S "$x_socket" ]; then
+      export DISPLAY=":${x_socket##*/X}"
+      printf 'DISPLAY was unset; using local X11 display %s\n' "$DISPLAY"
+      break
+    fi
+  done
+fi
+
+export QT_X11_NO_MITSHM="${QT_X11_NO_MITSHM:-1}"
+
 WS=/home/user/ws
 PLACE_NAV="$WS/src/PlaceNav"
 WEIGHTS="$PLACE_NAV/src/model_weights"
@@ -23,5 +38,9 @@ if [ ! -d "$THIRD_PARTY/train/gnm_train" ]; then
   rm -rf "$tmp_home"
 fi
 python3 -m pip install --user --no-deps -e "$THIRD_PARTY/train"
+
+if [ "${BUILD_OBSTACLE_STACK:-0}" = "1" ]; then
+  "$PLACE_NAV/scripts/build_obstacle_stack_ros1.sh" "$WS"
+fi
 
 exec "$@"

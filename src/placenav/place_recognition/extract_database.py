@@ -75,6 +75,26 @@ def list_h5_names(path):
         fd.visititems(visit_fn)
     return list(set(names))
 
+
+def database_matches_images(path: Path, image_names, signature=None) -> bool:
+    """Return True only when the HDF5 database exactly matches the map images."""
+    if not path.exists():
+        return False
+
+    try:
+        database_names = set(list_h5_names(path))
+        with h5py.File(str(path), 'r') as fd:
+            if signature is not None and fd.attrs.get('vpr_signature') != signature:
+                return False
+            for name in image_names:
+                if name not in fd or 'global_descriptor' not in fd[name]:
+                    return False
+    except (OSError, BlockingIOError):
+        return False
+
+    return database_names == set(image_names)
+
+
 class ImageDataset(torch.utils.data.Dataset):
     default_conf = {
         "globs": ["*.jpg", "*.png", "*.jpeg", "*.JPG", "*.PNG"],
@@ -138,6 +158,7 @@ def main(
     image_list: Optional[Union[Path, List[str]]] = None,
     feature_path: Optional[Path] = None,
     overwrite: bool = False,
+    signature: Optional[str] = None,
 ) -> Path:
     logger.info(
         "Extracting descriptors with configuration:" f"\n{pprint.pformat(conf)}"
@@ -146,6 +167,11 @@ def main(
     if feature_path is None:
         feature_path = Path(export_dir, conf["output"] + ".h5")
     feature_path.parent.mkdir(exist_ok=True, parents=True)
+    final_feature_path = feature_path
+    if signature is not None:
+        # Rebuild separately; a failed extraction never publishes a mixed/stale DB.
+        feature_path = Path(str(final_feature_path) + '.building')
+        feature_path.unlink(missing_ok=True)
     skip_names = set(
         list_h5_names(feature_path) if feature_path.exists() and not overwrite else ()
     )
@@ -193,5 +219,10 @@ def main(
 
         del pred
 
+    if signature is not None:
+        with h5py.File(str(feature_path), 'a') as fd:
+            fd.attrs['vpr_signature'] = signature
+        feature_path.replace(final_feature_path)
+        feature_path = final_feature_path
     logger.info("Finished exporting features.")
     return feature_path

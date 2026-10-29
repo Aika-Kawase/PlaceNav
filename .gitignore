@@ -2,6 +2,11 @@
 # Rosbags
 *.bag
 
+# Prepared VPR artifacts are transferred separately, never committed.
+src/model_weights/vpr/
+src/model_weights/waypoint/
+*.h5.building
+
 # Images
 *.jpeg
 *.png
