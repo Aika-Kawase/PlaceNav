@@ -3,6 +3,7 @@ project(placenav_teb_bridge)
 
 find_package(catkin REQUIRED COMPONENTS
   costmap_2d
+  diagnostic_msgs
   geometry_msgs
   interactive_markers
   nav_msgs
@@ -16,7 +17,7 @@ find_package(catkin REQUIRED COMPONENTS
 )
 
 catkin_package(
-  CATKIN_DEPENDS costmap_2d geometry_msgs interactive_markers nav_msgs roscpp rospy
+  CATKIN_DEPENDS costmap_2d diagnostic_msgs geometry_msgs interactive_markers nav_msgs roscpp rospy
                  std_msgs teb_local_planner tf2 tf2_ros visualization_msgs
 )
 

@@ -10,6 +10,10 @@
 #include <costmap_2d/cost_values.h>
 #include <costmap_2d/costmap_2d_ros.h>
 #include <geometry_msgs/Twist.h>
+#include <geometry_msgs/TwistStamped.h>
+#include <diagnostic_msgs/DiagnosticArray.h>
+#include <diagnostic_msgs/DiagnosticStatus.h>
+#include <diagnostic_msgs/KeyValue.h>
 #include <nav_msgs/Path.h>
 #include <ros/ros.h>
 #include <std_msgs/String.h>
@@ -44,6 +48,13 @@ public:
     private_nh_.param("recovery_stable_time", recovery_stable_time_, 1.0);
     private_nh_.param("minimum_avoidance_plan_poses", minimum_avoidance_plan_poses_, 3);
 
+    private_nh_.param<std::string>("reference_mode", reference_mode_, "state_machine");
+    private_nh_.param("path_timeout", path_timeout_, 0.0);
+    if (reference_mode_ != "state_machine" && reference_mode_ != "latest")
+      throw std::runtime_error("reference_mode must be state_machine or latest");
+    if (!std::isfinite(path_timeout_) || path_timeout_ < 0.)
+      throw std::runtime_error("path_timeout must be nonnegative");
+
     if (controller_frequency_ <= 0.0)
     {
       throw std::runtime_error("~controller_frequency must be positive");
@@ -59,6 +70,7 @@ public:
     cmd_vel_publisher_ = nh_.advertise<geometry_msgs::Twist>(cmd_vel_topic_, 1);
     active_path_publisher_ = private_nh_.advertise<nav_msgs::Path>("active_global_path", 1, true);
     state_publisher_ = private_nh_.advertise<std_msgs::String>("navigation_state", 1, true);
+    diagnostics_publisher_ = private_nh_.advertise<diagnostic_msgs::DiagnosticArray>("diagnostics", 1);
     path_subscriber_ = nh_.subscribe(path_topic_, 1, &PlaceNavTebBridge::pathCallback, this);
     teb_local_plan_subscriber_ = nh_.subscribe(
       teb_local_plan_topic_, 1, &PlaceNavTebBridge::tebLocalPlanCallback, this);
@@ -103,18 +115,19 @@ private:
 
   void pathCallback(const nav_msgs::Path::ConstPtr& path)
   {
+    std::lock_guard<std::mutex> lock(planner_mutex_);
     if (!validPath(*path, "GNM Path"))
     {
+      invalidatePlan("INVALID_INPUT_PATH");
       return;
     }
-
-    std::lock_guard<std::mutex> lock(planner_mutex_);
     latest_placenav_path_ = *path;
+    latest_path_wall_ = ros::WallTime::now();
     has_latest_placenav_path_ = true;
 
     // Keep receiving the newest PlaceNav path during avoidance, but do not let
     // it overwrite the promoted TEB avoidance path.
-    if (state_ == NavigationState::AVOIDING)
+    if (reference_mode_ == "state_machine" && state_ == NavigationState::AVOIDING)
     {
       return;
     }
@@ -154,17 +167,19 @@ private:
 
   bool setActivePlan(const nav_msgs::Path& path, const char* source)
   {
-    if (has_active_plan_ && plansEquivalent(path, active_plan_))
+    if (has_plan_ && has_active_plan_ && plansEquivalent(path, active_plan_))
     {
       return true;
     }
     if (!teb_planner_.setPlan(path.poses))
     {
       ROS_ERROR_THROTTLE(1.0, "TEB rejected the %s path", source);
-      has_plan_ = false;
+      invalidatePlan("SET_PLAN_REJECTED");
       return false;
     }
 
+    active_source_ = source;
+    stop_reason_ = "NONE";
     active_plan_ = path;
     active_plan_.header.stamp = ros::Time::now();
     has_active_plan_ = true;
@@ -224,6 +239,8 @@ private:
 
   bool obstacleBlocksLatestPlaceNavPath()
   {
+    cost_cells_ = range_cells_ = corridor_cells_ = 0;
+    detection_status_ = "NO_PATH";
     if (!has_latest_placenav_path_)
     {
       return false;
@@ -232,10 +249,17 @@ private:
     geometry_msgs::PoseStamped robot_pose;
     if (!costmap_ros_->getRobotPose(robot_pose))
     {
+      detection_status_ = "ROBOT_TF_UNAVAILABLE";
       ROS_WARN_THROTTLE(1.0, "Cannot obtain robot pose for obstacle-state detection");
       return false;
     }
 
+    if (latest_placenav_path_.header.frame_id != costmap_ros_->getGlobalFrameID())
+    {
+      detection_status_ = "PATH_FRAME_MISMATCH";
+      return false;
+    }
+    detection_status_ = "CLEAR";
     const double yaw = tf2::getYaw(robot_pose.pose.orientation);
     const double cos_yaw = std::cos(yaw);
     const double sin_yaw = std::sin(yaw);
@@ -254,6 +278,7 @@ private:
           continue;
         }
 
+        ++cost_cells_;
         double wx = 0.0;
         double wy = 0.0;
         costmap->mapToWorld(mx, my, wx, wy);
@@ -265,13 +290,15 @@ private:
         {
           continue;
         }
+        ++range_cells_;
         if (squaredDistanceToPath(wx, wy, latest_placenav_path_) <= corridor_squared)
         {
-          return true;
+          ++corridor_cells_;
         }
       }
     }
-    return false;
+    if (corridor_cells_) detection_status_ = "BLOCKED";
+    return corridor_cells_ > 0;
   }
 
   void transitionToAvoiding()
@@ -340,50 +367,136 @@ private:
     }
   }
 
+  bool pathExpired() const
+  {
+    return path_timeout_ > 0. && has_latest_placenav_path_ &&
+      (ros::WallTime::now()-latest_path_wall_).toSec() > path_timeout_;
+  }
+
+  void invalidatePlan(const std::string& reason)
+  {
+    has_plan_ = has_active_plan_ = has_latest_placenav_path_ = false;
+    has_latest_teb_local_path_ = false;
+    active_plan_ = nav_msgs::Path();
+    active_plan_.header.frame_id = costmap_ros_->getGlobalFrameID();
+    active_plan_.header.stamp = ros::Time::now();
+    active_source_ = "none";
+    stop_reason_ = reason;
+    state_ = NavigationState::NORMAL;
+    active_path_publisher_.publish(active_plan_);
+    publishState();
+    publishStop();
+  }
+
+  static double pathLength(const nav_msgs::Path& path)
+  {
+    double length = 0.;
+    for (std::size_t i=1; i<path.poses.size(); ++i)
+      length += std::hypot(path.poses[i].pose.position.x-path.poses[i-1].pose.position.x,
+                           path.poses[i].pose.position.y-path.poses[i-1].pose.position.y);
+    return length;
+  }
+
+  void publishDiagnostics(const std::string& reason, int outcome,
+                          const std::string& detail, const geometry_msgs::Twist& command)
+  {
+    diagnostic_msgs::DiagnosticArray array;
+    array.header.stamp = ros::Time::now();
+    diagnostic_msgs::DiagnosticStatus status;
+    status.name = "placenav_teb_bridge/control";
+    status.hardware_id = "navigation";
+    status.level = reason == "COMMAND_VALID" ? 0 : 1;
+    status.message = reason;
+    auto add = [&status](const std::string& key, const std::string& value) {
+      diagnostic_msgs::KeyValue item; item.key=key; item.value=value;
+      status.values.push_back(item);
+    };
+    add("reference_mode", reference_mode_);
+    add("state", reference_mode_ == "latest" ? "TRACKING" : stateName(state_));
+    add("active_source", active_source_);
+    add("teb_outcome", std::to_string(outcome));
+    add("teb_message", detail);
+    add("detection_status", detection_status_);
+    add("cells_above_cost_threshold", std::to_string(cost_cells_));
+    add("cells_in_forward_radius", std::to_string(range_cells_));
+    add("cells_near_path_points", std::to_string(corridor_cells_));
+    add("waiting_for_teb_seed", reference_mode_ == "state_machine" && corridor_cells_ &&
+        state_ != NavigationState::AVOIDING && !has_latest_teb_local_path_ ? "true" : "false");
+    add("input_poses", std::to_string(has_latest_placenav_path_ ? latest_placenav_path_.poses.size() : 0));
+    add("input_length_m", std::to_string(has_latest_placenav_path_ ? pathLength(latest_placenav_path_) : 0.));
+    add("active_poses", std::to_string(active_plan_.poses.size()));
+    add("active_length_m", std::to_string(pathLength(active_plan_)));
+    add("input_age_wall_s", has_latest_placenav_path_ ? std::to_string((ros::WallTime::now()-latest_path_wall_).toSec()) : "unavailable");
+    add("input_stamp", has_latest_placenav_path_ ? std::to_string(latest_placenav_path_.header.stamp.toSec()) : "unavailable");
+    add("cmd_v", std::to_string(command.linear.x));
+    add("cmd_w", std::to_string(command.angular.z));
+    bool shrink = false;
+    private_nh_.getParam("TebLocalPlannerROS/shrink_horizon_backup", shrink);
+    add("shrink_horizon_enabled", shrink ? "true" : "false");
+    // Cell cost is context, not a footprint collision test or TEB's pruned local goal.
+    std::string goal_cost = "unavailable";
+    if (!active_plan_.poses.empty() && active_plan_.header.frame_id == costmap_ros_->getGlobalFrameID())
+    {
+      auto* map = costmap_ros_->getCostmap();
+      std::unique_lock<costmap_2d::Costmap2D::mutex_t> map_lock(*(map->getMutex()));
+      unsigned int x, y;
+      const auto& goal = active_plan_.poses.back().pose.position;
+      goal_cost = map->worldToMap(goal.x, goal.y, x, y) ? std::to_string(map->getCost(x,y)) : "outside_map";
+    }
+    add("reference_goal_cell_cost", goal_cost);
+    array.status.push_back(status);
+    diagnostics_publisher_.publish(array);
+  }
+
   void controlCallback(const ros::TimerEvent&)
   {
+    std::lock_guard<std::mutex> lock(planner_mutex_);
     geometry_msgs::Twist command;
-    bool command_valid = false;
-    bool had_plan = false;
-
+    if (pathExpired()) invalidatePlan("INPUT_TIMEOUT");
+    const bool blocked = obstacleBlocksLatestPlaceNavPath();
+    if (reference_mode_ == "state_machine" &&
+        (detection_status_ == "CLEAR" || detection_status_ == "BLOCKED"))
+      updateNavigationState(blocked);
+    std::string reason = stop_reason_, detail;
+    int outcome = -1;
+    if (has_plan_)
     {
-      std::lock_guard<std::mutex> lock(planner_mutex_);
-      updateNavigationState(obstacleBlocksLatestPlaceNavPath());
-      had_plan = has_plan_;
-      if (has_plan_)
+      geometry_msgs::PoseStamped robot;
+      if (!costmap_ros_->getRobotPose(robot)) reason = "ROBOT_TF_UNAVAILABLE";
+      else
       {
-        command_valid = teb_planner_.computeVelocityCommands(command);
+        geometry_msgs::TwistStamped velocity, result;
+        // This is the same public overload called by TEB's bool wrapper.
+        outcome = teb_planner_.computeVelocityCommands(robot, velocity, result, detail);
+        command = result.twist;
         if (teb_planner_.isGoalReached())
         {
-          if (state_ == NavigationState::AVOIDING && has_latest_placenav_path_)
-          {
+          reason = "GOAL_REACHED";
+          has_plan_ = false;
+          if (reference_mode_ == "state_machine" && state_ == NavigationState::AVOIDING && has_latest_placenav_path_)
             transitionToRecovering();
-          }
-          else
-          {
-            has_plan_ = false;
-          }
-          command_valid = false;
-          ROS_INFO_THROTTLE(1.0, "TEB reached the end of the active path");
+          stop_reason_ = reason;
         }
+        else if (outcome != 0) reason = "TEB_FAILED";
+        else if (!std::isfinite(command.linear.x) || !std::isfinite(command.linear.y) || !std::isfinite(command.angular.z))
+          reason = "NONFINITE_COMMAND";
+        else reason = std::abs(command.linear.x)+std::abs(command.linear.y)+std::abs(command.angular.z) < 1e-6 ? "TEB_ZERO_COMMAND" : "COMMAND_VALID";
       }
     }
-
-    if (!command_valid)
+    if (pathExpired()) { invalidatePlan("INPUT_TIMEOUT"); reason = "INPUT_TIMEOUT"; }
+    if (reason != "COMMAND_VALID")
     {
       command = geometry_msgs::Twist();
-      if (had_plan)
-      {
-        ROS_WARN_THROTTLE(1.0, "TEB could not compute a valid command; publishing zero velocity");
-      }
+      ROS_WARN_THROTTLE(1., "Bridge stop: %s; TEB: %s", reason.c_str(), detail.c_str());
     }
     cmd_vel_publisher_.publish(command);
+    publishDiagnostics(reason, outcome, detail, command);
   }
 
   void publishState()
   {
     std_msgs::String message;
-    message.data = stateName(state_);
+    message.data = reference_mode_ == "latest" ? "TRACKING" : stateName(state_);
     state_publisher_.publish(message);
   }
 
@@ -406,6 +519,13 @@ private:
   ros::Publisher cmd_vel_publisher_;
   ros::Publisher active_path_publisher_;
   ros::Publisher state_publisher_;
+  ros::Publisher diagnostics_publisher_;
+  std::string reference_mode_{"state_machine"};
+  std::string active_source_{"none"}, stop_reason_{"NO_INPUT_PATH"};
+  std::string detection_status_{"NO_PATH"};
+  std::size_t cost_cells_{0}, range_cells_{0}, corridor_cells_{0};
+  ros::WallTime latest_path_wall_;
+  double path_timeout_{0.};
   ros::Timer control_timer_;
   std::mutex planner_mutex_;
   std::string path_topic_;
