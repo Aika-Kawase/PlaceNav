@@ -40,7 +40,7 @@ local_costmap:
 
   stvl:
     enabled: true
-    voxel_decay: 1.0
+    voxel_decay: 8.0 # 1.0, 5.0, 10
     decay_model: 0
     voxel_size: 0.05
     track_unknown_space: false
@@ -48,7 +48,7 @@ local_costmap:
     mark_threshold: 0
     update_footprint_enabled: true
     combination_method: 1
-    obstacle_range: 3.0
+    obstacle_range: 1.0 # 3.0, 0.3
     origin_z: 0.0
     publish_voxel_map: true
     transform_tolerance: 0.5
@@ -107,8 +107,8 @@ TebLocalPlannerROS:
   free_goal_vel: false
   complete_global_plan: true
 
-  min_obstacle_dist: 0.25
-  inflation_dist: 0.70
+  min_obstacle_dist: 0.20 # 0.25
+  inflation_dist: 0.20 # 0.70
   include_costmap_obstacles: true
   costmap_obstacles_behind_robot_dist: 1.0
   obstacle_poses_affected: 15
