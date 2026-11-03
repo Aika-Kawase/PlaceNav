@@ -27,6 +27,8 @@ usage()
       '' \
       'Starts inference and the GUI visualization. Use --no-visualization to suppress the GUI.' \
       'Starts the GNM Path adapter. Use --no-path-adapter to suppress it.' \
+      '  --path-adapter-source-frame FRAME (default: base_link)' \
+      '  --path-adapter-target-frame FRAME (default: odom)' \
       'It never starts the PD controller or robot drivers.'
 }
 
@@ -40,6 +42,8 @@ PR_MODEL="cosplace"
 WP_MODEL="gnm_large"
 SHOW_VISUALIZATION=1
 START_PATH_ADAPTER=1
+PATH_SOURCE_FRAME=base_link
+PATH_TARGET_FRAME=odom
 NAV_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -65,6 +69,14 @@ while [[ $# -gt 0 ]]; do
         --no-path-adapter)
             START_PATH_ADAPTER=0
             shift
+            ;;
+        --path-adapter-source-frame)
+            PATH_SOURCE_FRAME="$2"
+            shift 2
+            ;;
+        --path-adapter-target-frame)
+            PATH_TARGET_FRAME="$2"
+            shift 2
             ;;
         *)
             NAV_ARGS+=("$1")
@@ -96,7 +108,8 @@ PATH_ADAPTER_PID=""
 if [[ "${START_PATH_ADAPTER}" -eq 1 ]]; then
     EXPECTED_WAYPOINTS=5
     [[ "${WP_MODEL}" != "nomad" ]] || EXPECTED_WAYPOINTS=8
-    "${SCRIPT_DIR}/run_gnm_path_adapter_whill.sh" --expected-waypoints "${EXPECTED_WAYPOINTS}" &
+    "${SCRIPT_DIR}/run_gnm_path_adapter_whill.sh" --expected-waypoints "${EXPECTED_WAYPOINTS}" \
+        --source-frame "${PATH_SOURCE_FRAME}" --target-frame "${PATH_TARGET_FRAME}" &
     PATH_ADAPTER_PID=$!
 fi
 

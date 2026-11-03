@@ -1,0 +1,11 @@
+<launch>
+  <param name="use_sim_time" value="true"/>
+  <include file="$(find source_costmaps)/launch/gates.launch"/>
+  <node pkg="placenav_teb_bridge" type="placenav_teb_bridge_node" name="placenav_teb_bridge" output="screen" required="true">
+    <rosparam command="load" file="$(find placenav_teb_bridge)/config/bridge.yaml"/>
+    <rosparam command="load" file="$(find source_costmaps)/config/costmap.yaml"/>
+    <param name="cmd_vel_topic" value="/fusion_validation/cmd_vel"/>
+    <param name="diagnostics_enabled" value="true"/>
+  </node>
+  <test pkg="source_costmaps" type="test_inference_trace.py" test-name="real_model_trace" time-limit="120"/>
+</launch>

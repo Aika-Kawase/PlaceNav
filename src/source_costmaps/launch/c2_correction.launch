@@ -1,0 +1,9 @@
+<launch>
+  <arg name="robot_base_frame" default="base_link"/>
+  <!-- Floor-candidate primary fit, 0-30 s training, results/fixed_tf_validation/summary.json.
+       Q = Ry(-0.61897956 deg) Rx(+0.58242713 deg), about camera origin;
+       delta base z = +0.4511620009 m. Absolute base->optical pose below.
+       Separate child frame: original c2 TF is never replaced. -->
+  <node pkg="tf2_ros" type="static_transform_publisher" name="c2_floor_candidate_tf"
+        args="0.02652 0 1.4686620009085125 -0.4813627040827183 0.4865498075348136 -0.5130442130488477 0.5180201418507755 $(arg robot_base_frame) c2_corrected_camera_optical_frame"/>
+</launch>

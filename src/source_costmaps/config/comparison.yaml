@@ -1,0 +1,40 @@
+# Matched STVL conditions. Gates already enforce camera-relative range/height.
+# Keep every unread batch until the next map update; clear_after_reading avoids
+# refreshing old observations. A zero persistence would retain only the last
+# source's batch in the fused buffer, biasing the comparison.
+local_costmap:
+  d435: &layer
+    enabled: true
+    voxel_decay: 0.8
+    decay_model: 0
+    voxel_size: 0.05
+    track_unknown_space: true
+    mark_threshold: 1
+    update_footprint_enabled: true
+    combination_method: 1
+    publish_voxel_map: true
+    transform_tolerance: 0.2
+    mapping_mode: false
+    observation_sources: cloud
+    cloud: &cloud
+      data_type: PointCloud2
+      topic: /obstacles/comparison/d435/points
+      sensor_frame: odom
+      # No second range filter around a fictitious common camera origin.
+      obstacle_range: 1000000000.0
+      marking: true
+      clearing: false
+      expected_update_rate: 0.0
+      observation_persistence: 2.0
+      clear_after_reading: true
+      filter: none
+  unik3d:
+    <<: *layer
+    cloud:
+      <<: *cloud
+      topic: /obstacles/comparison/unik3d/points
+  fused:
+    <<: *layer
+    cloud:
+      <<: *cloud
+      topic: /obstacles/comparison/fused/points

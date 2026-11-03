@@ -1,0 +1,60 @@
+Panels:
+  - Class: rviz/Displays
+    Name: Displays
+Visualization Manager:
+  Global Options:
+    Fixed Frame: odom
+    Frame Rate: 20
+  Displays:
+    - Class: rviz/Grid
+      Name: Grid
+      Enabled: true
+      Cell Size: 1
+    - Class: rviz/Map
+      Name: TEB actual combined costmap
+      Enabled: true
+      Topic: /placenav_teb_bridge/local_costmap/costmap
+      Color Scheme: costmap
+      Alpha: 0.8
+    - Class: rviz/PointCloud2
+      Name: D435 gated observations
+      Enabled: false
+      Topic: /obstacles/d435/points
+      Color Transformer: FlatColor
+      Color: 0; 255; 255
+      Size (m): 0.04
+      Style: Spheres
+    - Class: rviz/PointCloud2
+      Name: UniK3D gated observations
+      Enabled: false
+      Topic: /obstacles/unik3d/points
+      Color Transformer: FlatColor
+      Color: 255; 170; 0
+      Size (m): 0.04
+      Style: Spheres
+    - Class: rviz/Path
+      Name: PlaceNav reference path
+      Enabled: true
+      Topic: /placenav/gnm_path
+      Color: 0; 100; 255
+    - Class: rviz/Path
+      Name: TEB local plan
+      Enabled: true
+      Topic: /placenav_teb_bridge/TebLocalPlannerROS/local_plan
+      Color: 0; 255; 0
+    - Class: rviz/Map
+      Name: Debug D435 map (requires debug_costmaps)
+      Enabled: false
+      Topic: /obstacles/source_costmaps/d435/costmap
+      Color Scheme: costmap
+    - Class: rviz/Map
+      Name: Debug UniK3D map (requires debug_costmaps)
+      Enabled: false
+      Topic: /obstacles/source_costmaps/unik3d/costmap
+      Color Scheme: costmap
+  Views:
+    Current:
+      Class: rviz/TopDownOrtho
+      Name: Current View
+      Scale: 60
+      Target Frame: base_link

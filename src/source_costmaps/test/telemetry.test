@@ -1,0 +1,3 @@
+<launch>
+  <test pkg="source_costmaps" type="test_telemetry.py" test-name="navigation_telemetry" time-limit="35"/>
+</launch>

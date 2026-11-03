@@ -1,0 +1,11 @@
+# Added only with diagnostics:=true. Actual publication must be checked before recording.
+- /usb_cam/image_raw
+- /placenav_teb_bridge/diagnostics
+- /placenav_teb_bridge/navigation_state
+- /placenav_teb_bridge/active_global_path
+- /placenav_teb_bridge/local_costmap/costmap_updates
+- /obstacles/d435/points
+- /obstacles/unik3d/points
+- /obstacles/d435_gate/diagnostics
+- /obstacles/unik3d_gate/diagnostics
+- /fusion_validation/cmd_vel
