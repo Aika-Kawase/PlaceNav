@@ -4,18 +4,18 @@ d435_gate:
   fixed_frame: odom
   base_frame: base_link
   expected_input_frame: realsense_color_optical_frame
-  max_age: 0.3
-  tf_wait: 0.3
-  future_tolerance: 0.05
+  max_age: 0.3 # 0.3
+  tf_wait: 0.3 # 0.3
+  future_tolerance: 0.05 # 0.05
   # Height is relative to base_link at acquisition time, not odom z.
-  min_height: 0.10
-  max_height: 1.50
-  min_range: 0.15
-  max_range: 3.0
-  voxel_size: 0.05
-  voxel_min_points: 1
-  confirmation_frames: 1
-  confirmation_max_gap: 0.4
+  min_height: 0.10 # 0.10
+  max_height: 1.50 # 1.50
+  min_range: 0.15 # 0.15
+  max_range: 1.0 # 3.0
+  voxel_size: 0.05 # 0.05
+  voxel_min_points: 1 # 1
+  confirmation_frames: 1 # 1
+  confirmation_max_gap: 0.4 # 0.4
 
 unik3d_gate:
   input_topic: /c2/depth/points
@@ -24,15 +24,15 @@ unik3d_gate:
   base_frame: base_link
   expected_input_frame: c2_camera_optical_frame
   frame_override: c2_corrected_camera_optical_frame
-  max_age: 0.6
-  tf_wait: 0.3
-  future_tolerance: 0.05
-  min_height: 0.35
-  max_height: 1.50
-  min_range: 0.5
-  max_range: 6.0
-  voxel_size: 0.10
-  voxel_min_points: 2
+  max_age: 0.6 # 0.6
+  tf_wait: 0.3 # 0.3
+  future_tolerance: 0.05 # 0.05
+  min_height: 0.45 # 0.35
+  max_height: 1.50 # 1.50
+  min_range: 0.5 # 0.5
+  max_range: 1.0 # 6.0
+  voxel_size: 0.05 # 0.10
+  voxel_min_points: 2 # 2
   # Same odom voxel in consecutive accepted frames; not a calibrated confidence.
-  confirmation_frames: 2
-  confirmation_max_gap: 0.4
+  confirmation_frames: 2 # 2
+  confirmation_max_gap: 0.4 # 0.4
