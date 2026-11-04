@@ -40,7 +40,7 @@ local_costmap:
 
   stvl:
     enabled: true
-    voxel_decay: 8.0 # 1.0, 5.0, 10
+    voxel_decay: 30.0 # 1.0, 5.0, 10
     decay_model: 0
     voxel_size: 0.05
     track_unknown_space: false

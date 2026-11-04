@@ -8,7 +8,7 @@ d435_gate:
   tf_wait: 0.3
   future_tolerance: 0.05
   # Height is relative to base_link at acquisition time, not odom z.
-  min_height: 0.10
+  min_height: 0.20 # 0.10<, <0.20
   max_height: 1.50
   min_range: 0.15
   max_range: 1.0 # 3.0
