@@ -1,0 +1,7 @@
+<launch>
+  <include file="$(find source_costmaps)/test/comparison.test">
+    <arg name="global_frame" value="comparison_odom"/>
+    <arg name="robot_base_frame" value="comparison_base"/>
+    <arg name="test_name" value="fusion_comparison_frames"/>
+  </include>
+</launch>

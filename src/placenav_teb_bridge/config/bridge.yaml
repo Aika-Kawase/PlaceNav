@@ -8,8 +8,8 @@ plan_orientation_epsilon: 0.10
 # the current TEB local path to the active global reference; after the obstacle
 # clears, restore the newest PlaceNav path for recovery.
 teb_local_plan_topic: /placenav_teb_bridge/TebLocalPlannerROS/local_plan
-obstacle_trigger_distance: 2.5
-obstacle_corridor_width: 0.8
+obstacle_trigger_distance: 1.0 # 2.5
+obstacle_corridor_width: 0.1 # 0.8
 obstacle_min_forward_distance: 0.1
 obstacle_cost_threshold: 253
 avoidance_clear_time: 1.0
@@ -40,7 +40,7 @@ local_costmap:
 
   stvl:
     enabled: true
-    voxel_decay: 8.0 # 1.0, 5.0, 10
+    voxel_decay: 30.0 # 1.0, 5.0, 10
     decay_model: 0
     voxel_size: 0.05
     track_unknown_space: false

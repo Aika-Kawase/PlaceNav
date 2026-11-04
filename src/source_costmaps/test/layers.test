@@ -1,0 +1,5 @@
+<launch>
+  <param name="use_sim_time" value="true"/>
+  <include file="$(find source_costmaps)/launch/costmaps.launch"/>
+  <test pkg="source_costmaps" type="test_layers.py" test-name="source_layers" time-limit="75"/>
+</launch>

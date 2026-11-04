@@ -13,6 +13,8 @@ package_paths=(
   "${workspace}/src/teb_local_planner"
   "${workspace}/src/spatio_temporal_voxel_layer"
   "${workspace}/src/PlaceNav/src/placenav_teb_bridge"
+  "${workspace}/src/PlaceNav/src/source_costmaps"
+  "${workspace}/src/PlaceNav/src/rwrc26_bringup"
   "${workspace}/src/UniDepth/ros1/unidepth_ros"
 )
 
@@ -30,6 +32,8 @@ colcon build \
     teb_local_planner \
     spatio_temporal_voxel_layer \
     placenav_teb_bridge \
+    source_costmaps \
+    rwrc26_bringup \
     unidepth_ros \
   --symlink-install \
   --cmake-clean-cache \

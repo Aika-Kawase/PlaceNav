@@ -1,0 +1,16 @@
+<launch>
+  <arg name="config" default="$(find source_costmaps)/config/gates.yaml"/>
+  <arg name="global_frame" default=""/>
+  <arg name="robot_base_frame" default=""/>
+  <group ns="obstacles">
+    <rosparam command="load" file="$(arg config)"/>
+    <node pkg="source_costmaps" type="cloud_gate_node" name="d435_gate" output="screen">
+      <param if="$(eval bool(arg('global_frame')))" name="fixed_frame" value="$(arg global_frame)"/>
+      <param if="$(eval bool(arg('robot_base_frame')))" name="base_frame" value="$(arg robot_base_frame)"/>
+    </node>
+    <node pkg="source_costmaps" type="cloud_gate_node" name="unik3d_gate" output="screen">
+      <param if="$(eval bool(arg('global_frame')))" name="fixed_frame" value="$(arg global_frame)"/>
+      <param if="$(eval bool(arg('robot_base_frame')))" name="base_frame" value="$(arg robot_base_frame)"/>
+    </node>
+  </group>
+</launch>

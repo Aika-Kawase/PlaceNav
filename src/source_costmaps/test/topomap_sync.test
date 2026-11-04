@@ -1,0 +1,3 @@
+<launch>
+  <test pkg="source_costmaps" type="test_topomap_sync.py" test-name="topomap_image_time" time-limit="40"/>
+</launch>

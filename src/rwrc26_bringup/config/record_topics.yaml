@@ -1,0 +1,29 @@
+# The 27 user-requested topics. Some depend on the installed PlaceNav version;
+# rosbag also subscribes to topics that are not currently published.
+- /usb_cam/image_raw/compressed
+- /usb_cam/camera_info
+- /odom
+- /tf
+- /tf_static
+- /c2/depth/points
+- /c2/depth/diagnostics
+- /toponav/localization_diagnostics
+- /toponav/viz_info
+- /toponav/reached_goal
+- /placenav/gnm_path
+- /placenav_teb_bridge/local_costmap/costmap
+- /placenav_teb_bridge/local_costmap/footprint
+- /placenav_teb_bridge/TebLocalPlannerROS/global_plan
+- /placenav_teb_bridge/TebLocalPlannerROS/local_plan
+- /placenav_teb_bridge/TebLocalPlannerROS/teb_poses
+- /placenav_teb_bridge/TebLocalPlannerROS/teb_markers
+- /placenav_teb_bridge/navigation_state
+- /local_path/cmd_vel
+- /whill/controller/cmd_vel
+- /realsense/color/image_raw/compressed
+- /realsense/color/camera_info
+- /placenav_teb_bridge/control_status
+- /realsense/depth/image_rect_raw
+- /realsense/depth/camera_info
+- /realsense/depth/color/points
+- /realsense/depth_registered/points
