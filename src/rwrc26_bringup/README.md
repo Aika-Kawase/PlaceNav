@@ -65,7 +65,7 @@ roslaunch rwrc26_bringup navigation.launch \
 | `path_timeout` | `0.0` | 有効なPathの受信間隔上限、秒。0は無効 |
 | `shrink_horizon_backup` | `true` | `TebLocalPlannerROS/shrink_horizon_backup` |
 | `global_frame` | `odom` | 点群gate・観測区間・コストマップ・TEB・経路adapter・RVizの共通フレーム |
-| `robot_base_frame` | `base_link` | gateの高さ基準・補正TFの親・コストマップ・経路adapterの基準 |
+| `robot_base_frame` | `base_link` | gateの高さ基準・コストマップ・経路adapterの基準 |
 | `odom_topic` | `/odom` | TEBのodometry入力 |
 | `bridge_config` | ブリッジの`config/bridge.yaml` | 元launchの`config`に相当 |
 | `robot_cmd_vel_topic` | `/local_path/cmd_vel` | `drive_robot:=true`時の速度出力 |
@@ -80,7 +80,7 @@ roslaunch rwrc26_bringup navigation.launch \
 `reference_mode`の詳細と診断項目は`placenav_teb_bridge/README.md`を参照。
 
 フレーム引数を変更する場合は、対応するTFとodomを用意する。
-補正TFの数値は従来のWHILL取り付け姿勢のままであり、別の原点・車体へ適用する補正ではない。
+C2には追加のTF補正を行わず、既存の `c2_camera_optical_frame` を使用する。カメラから車体へのTFは外部で配信する。
 bag記録のトピック一覧は自動改名しないため、トピックを変更した場合は`record_topics`も合わせる。
 
 ## PlaceNavの引数

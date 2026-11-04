@@ -23,7 +23,7 @@ unik3d_gate:
   fixed_frame: odom
   base_frame: base_link
   expected_input_frame: c2_camera_optical_frame
-  frame_override: c2_corrected_camera_optical_frame
+  frame_override: ""
   max_age: 0.6
   tf_wait: 0.3
   future_tolerance: 0.05

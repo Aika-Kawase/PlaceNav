@@ -2,9 +2,6 @@
   <arg name="config" default="$(find source_costmaps)/config/gates.yaml"/>
   <arg name="global_frame" default=""/>
   <arg name="robot_base_frame" default=""/>
-  <include file="$(find source_costmaps)/launch/c2_correction.launch">
-    <arg name="robot_base_frame" value="$(eval arg('robot_base_frame') or 'base_link')"/>
-  </include>
   <group ns="obstacles">
     <rosparam command="load" file="$(arg config)"/>
     <node pkg="source_costmaps" type="cloud_gate_node" name="d435_gate" output="screen">

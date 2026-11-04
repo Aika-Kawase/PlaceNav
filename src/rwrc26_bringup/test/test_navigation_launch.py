@@ -66,8 +66,8 @@ class NavigationLaunchTest(unittest.TestCase):
         self.assertEqual(params['/placenav_teb_bridge/TebLocalPlannerROS/odom_topic'], '/test/odom')
         self.assertEqual(params['/placenav_runner/global_frame'], 'test_odom')
         self.assertEqual(params['/placenav_runner/robot_base_frame'], 'test_base')
-        correction = next(n for n in config.nodes if n.name == 'c2_floor_candidate_tf')
-        self.assertIn('test_base c2_corrected_camera_optical_frame', correction.args)
+        self.assertFalse(any(n.name == 'c2_floor_candidate_tf' for n in config.nodes))
+        self.assertEqual(params['/obstacles/unik3d_gate/frame_override'], '')
         self.assertEqual(sum(n.name == 'comparison' for n in config.nodes), 1)
 
     def test_navigation_tuning_and_recording_parameters(self):
