@@ -1,0 +1,39 @@
+Panels:
+  - Class: rviz/Displays
+    Name: Displays
+Visualization Manager:
+  Global Options:
+    Fixed Frame: odom
+    Frame Rate: 20
+  Displays:
+    - Class: rviz/Grid
+      Name: Grid
+      Enabled: true
+      Cell Size: 1
+    - Class: rviz/Map
+      Name: D435 only
+      Enabled: false
+      Topic: /obstacles/source_costmaps/d435/costmap
+      Color Scheme: costmap
+      Alpha: 0.8
+    - Class: rviz/Map
+      Name: UniK3D only (corrected)
+      Enabled: false
+      Topic: /obstacles/source_costmaps/unik3d/costmap
+      Color Scheme: costmap
+      Alpha: 0.8
+    - Class: rviz/Map
+      Name: Combined with inflation
+      Enabled: true
+      Topic: /obstacles/source_costmaps/combined/costmap
+      Color Scheme: costmap
+      Alpha: 0.8
+    - Class: rviz/RobotModel
+      Name: RobotModel
+      Enabled: false
+  Views:
+    Current:
+      Class: rviz/TopDownOrtho
+      Name: Current View
+      Scale: 60
+      Target Frame: base_link

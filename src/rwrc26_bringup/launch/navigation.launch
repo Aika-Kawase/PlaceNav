@@ -1,0 +1,164 @@
+<launch>
+  <!-- Robot drivers/TF and the GPU model server must already be running. -->
+  <arg name="image_topic" default="/usb_cam/image_raw"/>
+  <arg name="server_host" default="127.0.0.1"/>
+  <arg name="server_port" default="5557"/>
+  <arg name="max_input_width" default="640"/>
+  <arg name="cloud_stride" default="4"/>
+  <arg name="placenav_src" default="/home/user/ws/src/PlaceNav/src"/>
+  <arg name="topomap_dir" default="whill_short_route_adaptive_c2_tsukuba_2.0"/>
+  <arg name="wp_model" default="nomad"/>
+  <arg name="pr_model" default="salad"/>
+  <arg name="subgoal_mode" default="place_recognition"/>
+  <arg name="filter_mode" default="bayesian"/>
+  <arg name="window_radius" default="3"/>
+  <arg name="start_node_idx" default="0"/>
+  <arg name="goal_node_idx" default="-1"/>
+  <arg name="lookahead" default="1"/>
+  <arg name="close_threshold" default="3"/>
+  <arg name="target_waypoint_idx" default="2"/>
+  <arg name="nomad_seed" default="0"/>
+  <arg name="device" default="cuda"/>
+  <arg name="transition_model_window_lower" default="-1"/>
+  <arg name="transition_model_window_upper" default="2"/>
+  <arg name="filter_delta" default="10"/>
+  <arg name="recompute_place_recognition_db" default="false"/>
+  <arg name="img_size" default="[]"/>
+  <arg name="navigation_visualization" default="true"/>
+  <!-- Match bridge.launch defaults; explicit args override bridge_config. -->
+  <arg name="reference_mode" default="latest"/>
+  <arg name="path_timeout" default="0.0"/>
+  <arg name="shrink_horizon_backup" default="true"/>
+  <arg name="global_frame" default="odom"/>
+  <arg name="robot_base_frame" default="base_link"/>
+  <arg name="odom_topic" default="/odom"/>
+  <arg name="valid_reference" value="$(eval {True: True}[arg('reference_mode') in ['state_machine', 'latest'] and 0 &lt;= float(arg('path_timeout')) &lt; float('inf')])"/>
+  <!-- Explicit opt-in switches the planner output to the live robot topic. -->
+  <arg name="drive_robot" default="false"/>
+  <arg name="robot_cmd_vel_topic" default="/local_path/cmd_vel"/>
+  <arg name="cmd_vel_topic" value="$(eval arg('robot_cmd_vel_topic') if arg('drive_robot') else '/fusion_validation/cmd_vel')"/>
+  <arg name="fusion_mode" default="layers"/>
+  <arg name="comparison_profile" default="$(eval 'matched' if arg('fusion_mode') == 'points' else 'current')"/>
+  <arg name="batch_interval" default="0.1"/>
+  <arg name="common_voxel_size" default="0.05"/>
+  <arg name="common_decay" default="0.8"/>
+  <arg name="gates_config" default="$(find source_costmaps)/config/gates.yaml"/>
+  <arg name="costmap_config" default="$(find source_costmaps)/config/costmap.yaml"/>
+  <arg name="bridge_config" default="$(find placenav_teb_bridge)/config/bridge.yaml"/>
+  <arg name="record" default="true"/>
+  <arg name="diagnostics" default="false"/>
+  <arg name="bag_dir" default="/home/user/ws/src/PlaceNav/bag"/>
+  <arg name="bag_prefix" default=""/>
+  <arg name="bag_buffer_mb" default="512"/>
+  <arg name="record_topics" default="$(find rwrc26_bringup)/config/record_topics.yaml"/>
+  <arg name="debug_costmaps" default="false"/>
+  <arg name="rviz" default="true"/>
+  <param name="use_sim_time" value="false"/>
+
+  <include file="$(find unidepth_ros)/launch/c2_unidepth.launch">
+    <arg name="image_topic" value="$(arg image_topic)"/>
+    <arg name="frame_id" value="c2_camera_optical_frame"/>
+    <arg name="camera_mode" value="auto"/>
+    <arg name="max_input_width" value="$(arg max_input_width)"/>
+    <arg name="cloud_stride" value="$(arg cloud_stride)"/>
+    <arg name="server_host" value="$(arg server_host)"/>
+    <arg name="server_port" value="$(arg server_port)"/>
+  </include>
+
+  <include file="$(find source_costmaps)/launch/pipeline.launch">
+    <arg name="global_frame" value="$(arg global_frame)"/>
+    <arg name="robot_base_frame" value="$(arg robot_base_frame)"/>
+    <arg name="gates_config" value="$(arg gates_config)"/>
+    <arg name="fusion_mode" value="$(arg fusion_mode)"/>
+    <arg name="comparison_profile" value="$(arg comparison_profile)"/>
+    <arg name="batch_interval" value="$(arg batch_interval)"/>
+    <arg name="common_voxel_size" value="$(arg common_voxel_size)"/>
+    <arg name="common_decay" value="$(arg common_decay)"/>
+  </include>
+
+  <rosparam command="load" file="$(arg bridge_config)" ns="placenav_teb_bridge"/>
+  <include file="$(find source_costmaps)/launch/load_costmap.launch">
+    <arg name="global_frame" value="$(arg global_frame)"/>
+    <arg name="robot_base_frame" value="$(arg robot_base_frame)"/>
+    <arg name="target_ns" value="/placenav_teb_bridge"/>
+    <arg name="config" value="$(arg costmap_config)"/>
+    <arg name="fusion_mode" value="$(arg fusion_mode)"/>
+    <arg name="comparison_profile" value="$(arg comparison_profile)"/>
+    <arg name="common_voxel_size" value="$(arg common_voxel_size)"/>
+    <arg name="common_decay" value="$(arg common_decay)"/>
+  </include>
+  <!-- Build the selected obstacle layers inside the planner's own Costmap2DROS.
+       Do not also launch bridge.launch or standalone costmaps.launch. -->
+  <node pkg="placenav_teb_bridge" type="placenav_teb_bridge_node" name="placenav_teb_bridge"
+        output="screen" required="true">
+    <param name="cmd_vel_topic" value="$(arg cmd_vel_topic)"/>
+    <param name="diagnostics_enabled" value="$(arg diagnostics)"/>
+    <param name="reference_mode" value="$(arg reference_mode)"/>
+    <param name="path_timeout" type="double" value="$(arg path_timeout)"/>
+    <param name="TebLocalPlannerROS/shrink_horizon_backup" type="bool" value="$(arg shrink_horizon_backup)"/>
+    <param name="TebLocalPlannerROS/map_frame" value="$(arg global_frame)"/>
+    <param name="TebLocalPlannerROS/odom_topic" value="$(arg odom_topic)"/>
+  </node>
+
+  <node pkg="rwrc26_bringup" type="session_runner.py" name="placenav_runner" output="screen" required="true">
+    <param name="role" value="navigation"/>
+    <param name="placenav_src" value="$(arg placenav_src)"/>
+    <param name="topomap_dir" value="$(arg topomap_dir)"/>
+    <param name="wp_model" value="$(arg wp_model)"/>
+    <param name="pr_model" value="$(arg pr_model)"/>
+    <param name="subgoal_mode" value="$(arg subgoal_mode)"/>
+    <param name="filter_mode" value="$(arg filter_mode)"/>
+    <param name="window_radius" value="$(arg window_radius)"/>
+    <param name="start_node_idx" value="$(arg start_node_idx)"/>
+    <param name="goal_node_idx" value="$(arg goal_node_idx)"/>
+    <param name="lookahead" value="$(arg lookahead)"/>
+    <param name="close_threshold" value="$(arg close_threshold)"/>
+    <param name="target_waypoint_idx" value="$(arg target_waypoint_idx)"/>
+    <param name="nomad_seed" value="$(arg nomad_seed)"/>
+    <param name="device" value="$(arg device)"/>
+    <param name="transition_model_window_lower" value="$(arg transition_model_window_lower)"/>
+    <param name="transition_model_window_upper" value="$(arg transition_model_window_upper)"/>
+    <param name="filter_delta" value="$(arg filter_delta)"/>
+    <param name="recompute_place_recognition_db" value="$(arg recompute_place_recognition_db)"/>
+    <rosparam param="img_size" subst_value="true">$(arg img_size)</rosparam>
+    <param name="global_frame" value="$(arg global_frame)"/>
+    <param name="robot_base_frame" value="$(arg robot_base_frame)"/>
+    <param name="visualization" value="$(arg navigation_visualization)"/>
+    <param name="diagnostics" value="$(arg diagnostics)"/>
+    <param name="drive_robot" value="$(arg drive_robot)"/>
+    <param name="cmd_vel_topic" value="$(arg cmd_vel_topic)"/>
+  </node>
+
+  <node if="$(arg record)" pkg="rwrc26_bringup" type="session_runner.py" name="session_recorder"
+        output="screen" required="true">
+    <param name="role" value="record"/>
+    <param name="placenav_src" value="$(arg placenav_src)"/>
+    <param name="diagnostics" value="$(arg diagnostics)"/>
+    <param name="bag_dir" value="$(arg bag_dir)"/>
+    <param name="bag_prefix" type="str" value="$(arg bag_prefix)"/>
+    <param name="buffer_mb" value="$(arg bag_buffer_mb)"/>
+    <rosparam command="load" file="$(arg record_topics)" param="topics"/>
+    <rosparam if="$(eval arg('comparison_profile') == 'matched')" command="load"
+      file="$(find rwrc26_bringup)/config/comparison_topics.yaml" param="comparison_topics"/>
+    <rosparam if="$(arg diagnostics)" command="load"
+      file="$(find rwrc26_bringup)/config/diagnostic_topics.yaml" param="diagnostic_topics"/>
+  </node>
+
+  <!-- Optional visualization-only second costmap instance. Gates/TF are shared.
+       This snapshot is not the planner's actual costmap update boundary. -->
+  <include if="$(arg debug_costmaps)" file="$(find source_costmaps)/launch/load_costmap.launch">
+    <arg name="global_frame" value="$(arg global_frame)"/>
+    <arg name="robot_base_frame" value="$(arg robot_base_frame)"/>
+    <arg name="target_ns" value="/obstacles/source_costmaps"/>
+    <arg name="config" value="$(arg costmap_config)"/>
+    <arg name="fusion_mode" value="$(arg fusion_mode)"/>
+    <arg name="comparison_profile" value="$(arg comparison_profile)"/>
+    <arg name="common_voxel_size" value="$(arg common_voxel_size)"/>
+    <arg name="common_decay" value="$(arg common_decay)"/>
+  </include>
+  <node if="$(arg debug_costmaps)" pkg="source_costmaps" type="source_costmaps_node" name="source_costmaps"
+        ns="obstacles" output="screen">
+  </node>
+  <node if="$(arg rviz)" pkg="rviz" type="rviz" name="navigation_rviz"
+        args="-d $(find rwrc26_bringup)/rviz/navigation.rviz -f $(arg global_frame)"/>
+</launch>

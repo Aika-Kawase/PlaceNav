@@ -1,0 +1,36 @@
+<launch>
+  <arg name="bag"/>
+  <!-- Optional second bag containing previously inferred C2 clouds. -->
+  <arg name="c2_bag" default=""/>
+  <arg name="infer_c2" default="false"/>
+  <arg name="server_port" default="15557"/>
+  <arg name="rate" default="1.0"/>
+  <arg name="rviz" default="false"/>
+  <arg name="fusion_mode" default="layers"/>
+  <arg name="comparison_profile" default="$(eval 'matched' if arg('fusion_mode') == 'points' else 'current')"/>
+  <arg name="batch_interval" default="0.1"/>
+  <arg name="common_voxel_size" default="0.05"/>
+  <arg name="common_decay" default="0.8"/>
+  <arg name="playback_c2_bag" default="$(eval arg('c2_bag') if not arg('infer_c2') else '')"/>
+  <arg name="playback_c2_topic" default="$(eval '/c2/depth/points' if not arg('infer_c2') else '')"/>
+  <param name="use_sim_time" value="true"/>
+  <include file="$(find source_costmaps)/launch/costmaps.launch">
+    <arg name="rviz" value="$(arg rviz)"/>
+    <arg name="fusion_mode" value="$(arg fusion_mode)"/>
+    <arg name="comparison_profile" value="$(arg comparison_profile)"/>
+    <arg name="batch_interval" value="$(arg batch_interval)"/>
+    <arg name="common_voxel_size" value="$(arg common_voxel_size)"/>
+    <arg name="common_decay" value="$(arg common_decay)"/>
+  </include>
+  <group if="$(arg infer_c2)">
+    <node pkg="source_costmaps" type="decompress_c2.py" name="decompress_c2"/>
+    <include file="$(find unidepth_ros)/launch/c2_unidepth.launch">
+      <arg name="image_topic" value="/fusion/c2/image_raw"/>
+      <arg name="server_host" value="127.0.0.1"/>
+      <arg name="server_port" value="$(arg server_port)"/>
+    </include>
+  </group>
+  <!-- Use a single player to preserve both bags' recorded arrival times. -->
+  <node pkg="rosbag" type="play" name="costmap_bag_playback" output="screen"
+        args="--clock --quiet --delay=3 --rate=$(arg rate) '$(arg bag)' $(arg playback_c2_bag) --topics /tf /tf_static /odom /realsense/depth/color/points $(arg playback_c2_topic) /usb_cam/image_raw/compressed /usb_cam/camera_info"/>
+</launch>

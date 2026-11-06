@@ -1,0 +1,12 @@
+# Recorded with the matched comparison profile, even if diagnostics=false.
+- /obstacles/d435/points
+- /obstacles/unik3d/points
+- /obstacles/d435_gate/diagnostics
+- /obstacles/unik3d_gate/diagnostics
+- /obstacles/comparison/d435/points
+- /obstacles/comparison/unik3d/points
+- /obstacles/comparison/fused/points
+- /obstacles/comparison/metadata
+- /obstacles/comparison/batch_trace
+- /obstacles/comparison/diagnostics
+- /fusion_validation/cmd_vel

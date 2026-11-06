@@ -45,7 +45,7 @@ CHANNELS_NUM_IN_LAST_CONV = {
 }
 
 class GeoLocalizationNet(nn.Module):
-    def __init__(self, backbone : str, fc_output_dim : int, train_all_layers : bool = False):
+    def __init__(self, backbone : str, fc_output_dim : int, train_all_layers : bool = False, pretrained : bool = True):
         """Return a model for GeoLocalization.
         
         Args:
@@ -55,7 +55,7 @@ class GeoLocalizationNet(nn.Module):
         """
         super().__init__()
         assert backbone in CHANNELS_NUM_IN_LAST_CONV, f"backbone must be one of {list(CHANNELS_NUM_IN_LAST_CONV.keys())}"
-        self.backbone, features_dim = get_backbone(backbone, train_all_layers)
+        self.backbone, features_dim = get_backbone(backbone, train_all_layers, pretrained)
         self.aggregation = nn.Sequential(
             L2Norm(),
             GeM(),
@@ -82,8 +82,9 @@ def get_pretrained_torchvision_model(backbone_name : str) -> torch.nn.Module:
     return model
 
 
-def get_backbone(backbone_name : str, train_all_layers : bool) -> Tuple[torch.nn.Module, int]:
-    backbone = get_pretrained_torchvision_model(backbone_name)
+def get_backbone(backbone_name : str, train_all_layers : bool, pretrained : bool = True) -> Tuple[torch.nn.Module, int]:
+    backbone = (get_pretrained_torchvision_model(backbone_name) if pretrained else
+                getattr(torchvision.models, backbone_name.lower())(pretrained=False))
     if backbone_name.startswith("ResNet"):
         if train_all_layers:
             logging.debug(f"Train all layers of the {backbone_name}")

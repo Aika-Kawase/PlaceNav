@@ -19,6 +19,7 @@ from place_recognition.bayesian_querier import PlaceRecognitionTopologicalFilter
 from place_recognition.sliding_window_querier import PlaceRecognitionSlidingWindowFilter
 from place_recognition.feature_extractor import FeatureExtractor
 from place_recognition import extract_database
+from place_recognition.vpr_config import image_transform, database_signature
 
 import parser
 from utils import to_numpy, load_model, read_image, get_image_transform, waypoints_to_ros_msg, bridge
@@ -43,7 +44,19 @@ class PlaceNavNode:
             self.device = torch.device("cpu")
 
         # Get the image preprocessing transform for the neural network models
+        with args.model_config_path.open(encoding="utf-8") as f:
+            wp_config = yaml.safe_load(f)[args.wp_model]
+        args.img_size = args.img_size or wp_config["image_size"]
+        if list(args.img_size) != list(wp_config["image_size"]) and args.wp_model != "gnm_large":
+            raise ValueError(f"{args.wp_model} requires image_size={wp_config['image_size']}")
+        if not 0 <= args.target_waypoint_idx < wp_config["len_traj_pred"]:
+            raise ValueError("--target-waypoint-idx is outside the model's predicted trajectory")
+        self._nomad_seed = args.nomad_seed
         self._image_transform = get_image_transform(args.img_size)
+        if args.wp_model in ("vint", "nomad"):
+            from placenav.waypoint_backends import waypoint_transform
+            self._image_transform = waypoint_transform(args.img_size)
+        self._vpr_transform = self._image_transform
 
         # Load the topological map
         self._load_topomap(args.topomap_base_dir, args.topomap_dir)
@@ -76,6 +89,16 @@ class PlaceNavNode:
         
         self._setup_ros()
 
+        if args.subgoal_mode == 'place_recognition':
+            ready_tmp_path = self._place_recognition_ready_path.with_suffix(
+                self._place_recognition_ready_path.suffix + ".tmp"
+            )
+            ready_tmp_path.write_text(
+                f"images={self.map_size}\n",
+                encoding="utf-8",
+            )
+            ready_tmp_path.replace(self._place_recognition_ready_path)
+
     def _load_topomap(self, topomap_images_base_dir, topomap_dir: Path):
         # List the topomap images with suffix img_suffix in the directory,
         # extract the filenames and sort them        
@@ -97,6 +120,7 @@ class PlaceNavNode:
             topomap_images.append(img)
         
         self.map_size = map_size
+        self.topomap_filenames = topomap_filenames
         self.topomap_images = topomap_images
 
     def _setup_place_recognition(
@@ -115,30 +139,48 @@ class PlaceNavNode:
             confs = yaml.safe_load(f)
             conf = confs[place_recognition_model]
         conf['model']["checkpoint_path"] = model_weight_dir / conf['model']["checkpoint_path"]
+        # CosPlace must not change resolution when the waypoint backend changes.
+        conf.setdefault('preprocessing', {'resize': [85, 64], 'normalize_first': False})
+        self._vpr_transform = image_transform(
+            conf['preprocessing']['resize'], conf['preprocessing'].get('normalize_first', False))
+        if not conf['model']['checkpoint_path'].is_file():
+            raise FileNotFoundError(
+                f"Missing {conf['model']['checkpoint_path']}. Prepare the selected VPR model first.")
+        signature = database_signature(conf, self.topomap_img_dir, self.topomap_filenames)
 
         # Extract the global descriptors from the topomap images
         place_recognition_db_path = self.topomap_img_dir / f"global-feats-{place_recognition_model}.h5"
+        self._place_recognition_ready_path = Path(f"{place_recognition_db_path}.ready")
+        self._place_recognition_ready_path.unlink(missing_ok=True)
 
-        if not place_recognition_db_path.exists():
-            rospy.loginfo(f"Extracting features from topomaps in {self.topomap_img_dir}")
+        if recompute_db or not extract_database.database_matches_images(
+            place_recognition_db_path,
+            self.topomap_filenames,
+            signature,
+        ):
+            rospy.loginfo(
+                "Place recognition database is missing or incomplete; "
+                f"extracting features for {self.map_size} topomap images"
+            )
             extract_database.main(
                 conf,
                 self.topomap_img_dir,
-                self._image_transform,
+                self._vpr_transform,
                 self.topomap_img_dir,
                 as_half=False,
+                signature=signature,
+                image_list=self.topomap_filenames,
                 )
-            
-        elif recompute_db:
-            rospy.loginfo(f"Recomputing features from topomaps in {self.topomap_img_dir}")
-            place_recognition_db_path.unlink()
-            extract_database.main(
-                conf,
-                self.topomap_img_dir,
-                self._image_transform,
-                self.topomap_img_dir,
-                as_half=False,
-                )
+
+        if not extract_database.database_matches_images(
+            place_recognition_db_path,
+            self.topomap_filenames,
+            signature,
+        ):
+            raise RuntimeError(
+                "Place recognition database is incomplete after feature extraction: "
+                f"expected {self.map_size} image entries in {place_recognition_db_path}"
+            )
 
         extractor = FeatureExtractor(conf, self.device)
 
@@ -172,6 +214,11 @@ class PlaceNavNode:
             model_configs = yaml.safe_load(f)
         model_config = model_configs[model]
         model_config["img_size"] = img_size
+        model_config["seed"] = self._nomad_seed
+        self.waypoint_scale = (self.robot_config["max_v"] / self.robot_config["frame_rate"]
+                               if model_config.get("metric_scale") == "robot_step" else 1.0)
+        rospy.loginfo("Waypoint backend=%s, image=%s, points=%d, XY scale=%g",
+                      model, img_size, model_config["len_traj_pred"], self.waypoint_scale)
 
         model_path = model_weight_dir / model_config["checkpoint_path"]
         if not model_path.exists():
@@ -228,13 +275,14 @@ class PlaceNavNode:
         
     def obs_callback(self, msg: Image):
         img = bridge.imgmsg_to_cv2(msg, desired_encoding="rgb8")
+        vpr_img = self._vpr_transform(img).unsqueeze(0)
         with self.obs_lock:
             img = self._image_transform(img).unsqueeze(0)
             if len(self.context_queue) < self.context_size + 1:
-                self.context_queue.append( {'timestamp': msg.header.stamp, 'img': img})
+                self.context_queue.append( {'timestamp': msg.header.stamp, 'img': img, 'vpr_img': vpr_img})
             else:            
                 self.context_queue.pop(0)
-                self.context_queue.append({'timestamp': msg.header.stamp, 'img': img})
+                self.context_queue.append({'timestamp': msg.header.stamp, 'img': img, 'vpr_img': vpr_img})
 
     def stop_callback(self, msg: Bool):
         if msg.data:
@@ -265,7 +313,7 @@ class PlaceNavNode:
             
             if len(context) >= self.context_size + 1:
 
-                current_obs = context[-1]['img'].to(self.device)
+                current_obs = context[-1]['vpr_img'].to(self.device)
                 current_obs_timestamp = context[-1]['timestamp']
                 # Cat the context images along the channel dimension
                 context = torch.cat([obs['img'] for obs in context], dim=1).to(self.device)
@@ -343,6 +391,14 @@ class PlaceNavNode:
                 else:
                     raise ValueError(f"Subgoal mode {args.subgoal_mode} not recognized")
 
+                if not np.isfinite(waypoints).all():
+                    rospy.logerr_throttle(2.0, "Non-finite waypoint prediction; not publishing path")
+                    rate.sleep()
+                    continue
+                # Official ViNT/NoMaD actions are normalized displacements, not
+                # meters. Preserve legacy GNM behavior; scale only configured models.
+                waypoints[:, :2] *= self.waypoint_scale
+
                 # Check if the goal has been reached
                 reached_goal = closest_node_idx == args.goal_node_idx
 
@@ -364,7 +420,7 @@ class PlaceNavNode:
                 viz_msg.subgoal_idx = subgoal_idx
                 viz_msg.waypoints = waypoints_to_ros_msg(waypoints)
 
-                diagnostics = getattr(self.place_recognition_querier, "last_diagnostics", None)
+                diagnostics = getattr(getattr(self, 'place_recognition_querier', None), "last_diagnostics", None)
                 if diagnostics is not None:
                     diagnostics_msg = LocalizationDiagnostics()
                     diagnostics_msg.query_timestamp = current_obs_timestamp
@@ -393,13 +449,3 @@ if __name__ == '__main__':
 
     placenav_node = PlaceNavNode(args)
     placenav_node.navigate(args)
-
-
-        
-
-
-
-
-
-        
-        

@@ -1,0 +1,8 @@
+# Inference only; upstream training dependencies are intentionally not installed.
+efficientnet-pytorch==0.7.1
+einops==0.6.1
+diffusers==0.18.2
+huggingface-hub==0.23.5
+gdown==5.2.0
+# Legacy official ViNT checkpoint also serializes its training scheduler.
+warmup-scheduler==0.3

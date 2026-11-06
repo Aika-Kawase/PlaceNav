@@ -40,23 +40,24 @@ class PlaceRecognitionTopologicalFilter:
         '''
         # Distance between query descriptor and database descriptors
         query_desc = self.extractor(img)['global_descriptor'].numpy().squeeze()
-        dists = np.sqrt(2 - 2 * np.dot(self.descriptors, query_desc))
+        dists = np.sqrt(np.maximum(0.0, 2 - 2 * np.clip(np.dot(self.descriptors, query_desc), -1, 1)))
         
         # Init for lambda1
         descriptor_quantiles = np.quantile(dists, [0.025, 0.975])
         self.lambda1 = np.log(self.delta) / (
-            descriptor_quantiles[1] - descriptor_quantiles[0]
+            max(descriptor_quantiles[1] - descriptor_quantiles[0], 1e-6)
         )
 
         # Init for belief distribution
-        self.belief = np.exp(-self.lambda1 * dists)
+        self.belief = np.exp(-self.lambda1 * (dists - dists.min()))
         self.belief /= self.belief.sum()
 
     def obs_lhood(self, descriptor: np.ndarray) -> np.ndarray:
         '''Observation likelihood of the query descriptor'''
-        vsim = np.exp(
-            -self.lambda1 * np.sqrt(2 - 2 * np.dot(self.descriptors, descriptor))
-        )
+        dists = np.sqrt(np.maximum(0.0, 2 - 2 * np.clip(np.dot(self.descriptors, descriptor), -1, 1)))
+        # Preserve positive likelihoods even when a new backend has a very narrow
+        # initial distance distribution; otherwise a later update can sum to 0.
+        vsim = np.exp(np.maximum(-self.lambda1 * (dists - dists.min()), -80.0))
         return vsim
 
     def match(self, img: torch.Tensor) -> Tuple[int, float]:

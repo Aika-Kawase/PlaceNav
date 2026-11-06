@@ -1,0 +1,45 @@
+<launch>
+  <arg name="target_ns"/>
+  <arg name="config" default="$(find source_costmaps)/config/costmap.yaml"/>
+  <arg name="global_frame" default=""/>
+  <arg name="robot_base_frame" default=""/>
+  <arg name="fusion_mode" default="layers"/>
+  <arg name="comparison_profile" default="$(eval 'matched' if arg('fusion_mode') == 'points' else 'current')"/>
+  <!-- Invalid combinations fail during launch parsing, before nodes start. -->
+  <arg name="matched" value="$(eval {'layers:current': False, 'layers:matched': True, 'points:matched': True}[arg('fusion_mode') + ':' + arg('comparison_profile')])"/>
+  <arg name="common_voxel_size" default="0.05"/>
+  <arg name="common_decay" default="0.8"/>
+  <arg name="valid_numbers" value="$(eval {True: True}[0 &lt; float(arg('common_voxel_size')) &lt;= 1 and 0 &lt; float(arg('common_decay')) &lt;= 60])"/>
+  <group ns="$(arg target_ns)">
+    <param name="fusion_mode" value="$(arg fusion_mode)"/>
+    <param name="comparison_profile" value="$(arg comparison_profile)"/>
+    <rosparam command="load" file="$(arg config)"/>
+    <group if="$(arg matched)">
+      <rosparam command="load" file="$(find source_costmaps)/config/comparison.yaml"/>
+      <!-- Matched clouds are already transformed by the gates. The synthetic
+           ranging origin must use that same frame (no physical sensor range). -->
+      <group if="$(eval bool(arg('global_frame')))">
+        <param name="local_costmap/d435/cloud/sensor_frame" value="$(arg global_frame)"/>
+        <param name="local_costmap/unik3d/cloud/sensor_frame" value="$(arg global_frame)"/>
+        <param name="local_costmap/fused/cloud/sensor_frame" value="$(arg global_frame)"/>
+      </group>
+      <param name="local_costmap/d435/voxel_size" value="$(arg common_voxel_size)"/>
+      <param name="local_costmap/unik3d/voxel_size" value="$(arg common_voxel_size)"/>
+      <param name="local_costmap/fused/voxel_size" value="$(arg common_voxel_size)"/>
+      <param name="local_costmap/d435/voxel_decay" value="$(arg common_decay)"/>
+      <param name="local_costmap/unik3d/voxel_decay" value="$(arg common_decay)"/>
+      <param name="local_costmap/fused/voxel_decay" value="$(arg common_decay)"/>
+      <rosparam if="$(eval arg('fusion_mode') == 'layers')" param="local_costmap/plugins">
+        - {name: d435, type: "spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer"}
+        - {name: unik3d, type: "spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer"}
+        - {name: inflation, type: "costmap_2d::InflationLayer"}
+      </rosparam>
+      <rosparam if="$(eval arg('fusion_mode') == 'points')" param="local_costmap/plugins">
+        - {name: fused, type: "spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer"}
+        - {name: inflation, type: "costmap_2d::InflationLayer"}
+      </rosparam>
+    </group>
+    <param if="$(eval bool(arg('global_frame')))" name="local_costmap/global_frame" value="$(arg global_frame)"/>
+    <param if="$(eval bool(arg('robot_base_frame')))" name="local_costmap/robot_base_frame" value="$(arg robot_base_frame)"/>
+  </group>
+</launch>

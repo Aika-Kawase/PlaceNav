@@ -11,6 +11,7 @@ from geometry_msgs.msg import Point
 import argparse
 import cv2
 import numpy as np
+import os
 import time
 import yaml
 
@@ -31,6 +32,7 @@ class TopoNavVisualizationNode:
     def __init__(self, args):
 
         self._viz_image_size = args.viz_img_size
+        self._pr_model_name = args.pr_model
         self._show = args.show
         self._save = args.save
         self._display_waypoints = args.display_waypoints
@@ -213,6 +215,32 @@ class TopoNavVisualizationNode:
 
     def run(self):
         rospy.loginfo("Starting visualization node. Press 'Q' to stop if the visualization is shown.")
+        if self._show:
+            waiting_panel = np.zeros(
+                (self._viz_image_size[1], 2 * self._viz_image_size[0], 3),
+                dtype=np.uint8,
+            )
+            cv2.putText(
+                waiting_panel,
+                "Waiting for camera image and /toponav/viz_info ...",
+                (30, self._viz_image_size[1] // 2),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (0, 255, 255),
+                2,
+                cv2.LINE_AA,
+            )
+            try:
+                cv2.namedWindow("Topological Navigation", cv2.WINDOW_NORMAL)
+                cv2.imshow("Topological Navigation", waiting_panel)
+                cv2.waitKey(1)
+            except cv2.error as exc:
+                raise RuntimeError(
+                    "Failed to open the PlaceNav GUI. "
+                    f"DISPLAY={os.environ.get('DISPLAY', '<unset>')}. "
+                    "Check the X11 socket/permission passed to the container."
+                ) from exc
+
         start_time = time.time()
         started_writing = False
         while not rospy.is_shutdown():
@@ -246,6 +274,16 @@ class TopoNavVisualizationNode:
                             query_obs_msg = self._obs_buffer[query_key]
 
                         # Get the topomap image corresponding to the query image
+                        if not 0 <= self._subgoal_idx < len(self._topomap_images):
+                            rospy.logwarn(
+                                "Invalid subgoal index: %d, visualization map size: %d; skipping frame",
+                                self._subgoal_idx,
+                                len(self._topomap_images),
+                            )
+                            self._subgoal_idx = None
+                            self._query_timestamp = None
+                            self._waypoints = None
+                            continue
                         subgoal_img = self._topomap_images[self._subgoal_idx]
                         waypoints = deepcopy(self._waypoints)
                         diagnostics = deepcopy(
@@ -271,7 +309,7 @@ class TopoNavVisualizationNode:
                     if diagnostics is not None:
                         lines = [
                             f"current={diagnostics['current_node_idx']}  subgoal={diagnostics['subgoal_idx']}",
-                            f"CosPlace: {diagnostics['cosplace_top1_node_idx']}={diagnostics['cosplace_top1_score']:.3f}  "
+                            f"{self._pr_model_name}: {diagnostics['cosplace_top1_node_idx']}={diagnostics['cosplace_top1_score']:.3f}  "
                             f"{diagnostics['cosplace_top2_node_idx']}={diagnostics['cosplace_top2_score']:.3f}  "
                             f"margin={diagnostics['cosplace_score_margin']:.3f}",
                             f"Bayes: max={diagnostics['bayesian_belief_max']:.3f}  "
@@ -401,5 +439,4 @@ if __name__ == "__main__":
 
 
                 
-
 

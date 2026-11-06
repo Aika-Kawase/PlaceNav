@@ -1,0 +1,35 @@
+<launch>
+  <arg name="config" default="$(find source_costmaps)/config/costmap.yaml"/>
+  <arg name="gates_config" default="$(find source_costmaps)/config/gates.yaml"/>
+  <arg name="rviz" default="false"/>
+  <arg name="start_gates" default="true"/>
+  <arg name="start_batch" default="true"/>
+  <arg name="fusion_mode" default="layers"/>
+  <arg name="comparison_profile" default="$(eval 'matched' if arg('fusion_mode') == 'points' else 'current')"/>
+  <arg name="batch_interval" default="0.1"/>
+  <arg name="common_voxel_size" default="0.05"/>
+  <arg name="common_decay" default="0.8"/>
+  <include file="$(find source_costmaps)/launch/pipeline.launch">
+    <arg name="start_gates" value="$(arg start_gates)"/>
+    <arg name="start_batch" value="$(arg start_batch)"/>
+    <arg name="gates_config" value="$(arg gates_config)"/>
+    <arg name="fusion_mode" value="$(arg fusion_mode)"/>
+    <arg name="comparison_profile" value="$(arg comparison_profile)"/>
+    <arg name="batch_interval" value="$(arg batch_interval)"/>
+    <arg name="common_voxel_size" value="$(arg common_voxel_size)"/>
+    <arg name="common_decay" value="$(arg common_decay)"/>
+  </include>
+  <include file="$(find source_costmaps)/launch/load_costmap.launch">
+    <arg name="target_ns" value="/obstacles/source_costmaps"/>
+    <arg name="config" value="$(arg config)"/>
+    <arg name="fusion_mode" value="$(arg fusion_mode)"/>
+    <arg name="comparison_profile" value="$(arg comparison_profile)"/>
+    <arg name="common_voxel_size" value="$(arg common_voxel_size)"/>
+    <arg name="common_decay" value="$(arg common_decay)"/>
+  </include>
+  <!-- Mapping only; no planner, path follower or velocity publisher. -->
+  <node pkg="source_costmaps" type="source_costmaps_node" name="source_costmaps" ns="obstacles" output="screen">
+  </node>
+  <node if="$(arg rviz)" pkg="rviz" type="rviz" name="source_costmaps_rviz"
+        args="-d $(find source_costmaps)/rviz/costmaps.rviz"/>
+</launch>

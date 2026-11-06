@@ -25,6 +25,9 @@ def load_model(
     device: torch.device = torch.device("cpu"),
 ) -> nn.Module:
     """Load a model from a checkpoint file (works with models trained on multiple GPUs)"""
+    if model_params["model_type"] in ("vint", "nomad"):
+        from placenav.waypoint_backends import load_waypoint_backend
+        return load_waypoint_backend(model_path, model_params, device)
     checkpoint = torch.load(model_path, map_location=device)
     loaded_model = checkpoint["model"]
 
@@ -128,7 +131,7 @@ def to_local_coords(
 
 def waypoints_to_ros_msg(waypoints: np.ndarray) -> List[Point]:
     """Converts a numpy array of waypoints to a list of ROS Point messages"""
-    return [Point(x=x, y=y, z=0) for x, y, _, _ in waypoints]
+    return [Point(x=float(wp[0]), y=float(wp[1]), z=0) for wp in waypoints]
 
 def project_waypoint(wp: Point, camera_height: float, K: np.ndarray, D: np.ndarray) -> Tuple[int, int]:
     '''

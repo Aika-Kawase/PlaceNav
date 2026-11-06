@@ -1,0 +1,31 @@
+<launch>
+  <arg name="global_frame" default="odom"/>
+  <arg name="robot_base_frame" default="base_link"/>
+  <arg name="test_name" default="fusion_comparison"/>
+  <param name="use_sim_time" value="true"/>
+  <include file="$(find source_costmaps)/launch/pipeline.launch">
+    <arg name="global_frame" value="$(arg global_frame)"/>
+    <arg name="robot_base_frame" value="$(arg robot_base_frame)"/>
+    <arg name="comparison_profile" value="matched"/>
+  </include>
+  <include file="$(find source_costmaps)/launch/load_costmap.launch">
+    <arg name="global_frame" value="$(arg global_frame)"/>
+    <arg name="robot_base_frame" value="$(arg robot_base_frame)"/>
+    <arg name="target_ns" value="/obstacles/points_map"/>
+    <arg name="fusion_mode" value="points"/>
+    <arg name="comparison_profile" value="matched"/>
+  </include>
+  <include file="$(find source_costmaps)/launch/load_costmap.launch">
+    <arg name="global_frame" value="$(arg global_frame)"/>
+    <arg name="robot_base_frame" value="$(arg robot_base_frame)"/>
+    <arg name="target_ns" value="/obstacles/layers_map"/>
+    <arg name="fusion_mode" value="layers"/>
+    <arg name="comparison_profile" value="matched"/>
+  </include>
+  <node pkg="source_costmaps" type="source_costmaps_node" name="points_map" ns="obstacles"/>
+  <node pkg="source_costmaps" type="source_costmaps_node" name="layers_map" ns="obstacles"/>
+  <test pkg="source_costmaps" type="test_comparison.py" test-name="$(arg test_name)" time-limit="75">
+    <param name="global_frame" value="$(arg global_frame)"/>
+    <param name="robot_base_frame" value="$(arg robot_base_frame)"/>
+  </test>
+</launch>

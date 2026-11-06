@@ -1,0 +1,28 @@
+<launch>
+  <arg name="gates_config" default="$(find source_costmaps)/config/gates.yaml"/>
+  <!-- Empty values preserve frames from custom gates_config. -->
+  <arg name="global_frame" default=""/>
+  <arg name="robot_base_frame" default=""/>
+  <arg name="start_gates" default="true"/>
+  <arg name="start_batch" default="true"/>
+  <arg name="fusion_mode" default="layers"/>
+  <arg name="comparison_profile" default="$(eval 'matched' if arg('fusion_mode') == 'points' else 'current')"/>
+  <arg name="matched" value="$(eval {'layers:current': False, 'layers:matched': True, 'points:matched': True}[arg('fusion_mode') + ':' + arg('comparison_profile')])"/>
+  <arg name="batch_interval" default="0.1"/>
+  <arg name="common_voxel_size" default="0.05"/>
+  <arg name="common_decay" default="0.8"/>
+  <arg name="valid_numbers" value="$(eval {True: True}[0 &lt; float(arg('batch_interval')) &lt;= 0.2 and 0 &lt; float(arg('common_voxel_size')) &lt;= 1 and 0 &lt; float(arg('common_decay')) &lt;= 60])"/>
+  <rosparam command="load" file="$(arg gates_config)" ns="obstacles"/>
+  <include if="$(arg start_gates)" file="$(find source_costmaps)/launch/gates.launch">
+    <arg name="config" value="$(arg gates_config)"/>
+    <arg name="global_frame" value="$(arg global_frame)"/>
+    <arg name="robot_base_frame" value="$(arg robot_base_frame)"/>
+  </include>
+  <node if="$(eval arg('matched') and arg('start_batch'))" pkg="source_costmaps" type="cloud_batch.py" name="comparison" ns="obstacles" required="true" output="screen">
+    <param name="fusion_mode" value="$(arg fusion_mode)"/>
+    <param name="comparison_profile" value="$(arg comparison_profile)"/>
+    <param name="batch_interval" value="$(arg batch_interval)"/>
+    <param name="common_voxel_size" value="$(arg common_voxel_size)"/>
+    <param name="common_decay" value="$(arg common_decay)"/>
+  </node>
+</launch>

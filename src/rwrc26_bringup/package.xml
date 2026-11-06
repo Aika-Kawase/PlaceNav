@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>rwrc26_bringup</name>
+  <version>0.1.0</version>
+  <description>Integrated PlaceNav, depth adapter, source costmap TEB and session recording launch.</description>
+  <maintainer email="amsl@example.invalid">AMSL</maintainer>
+  <license>BSD-3-Clause</license>
+  <buildtool_depend>catkin</buildtool_depend>
+  <exec_depend>source_costmaps</exec_depend>
+  <exec_depend>unidepth_ros</exec_depend>
+  <exec_depend>placenav_teb_bridge</exec_depend>
+  <exec_depend>rospy</exec_depend>
+  <exec_depend>rosbag</exec_depend>
+  <exec_depend>roslib</exec_depend>
+  <exec_depend>python3-rospkg</exec_depend>
+  <exec_depend>roslaunch</exec_depend>
+  <exec_depend>rviz</exec_depend>
+  <export/>
+</package>

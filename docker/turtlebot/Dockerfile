@@ -104,7 +104,7 @@ RUN apt-get update && apt-get install -y \
 COPY ./ /opt/placenav
 WORKDIR /opt/placenav
 RUN --mount=type=cache,target=/root/.cache \
-    pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu113
+    pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu118
 
 WORKDIR /opt/
 RUN --mount=type=cache,target=/root/.cache \

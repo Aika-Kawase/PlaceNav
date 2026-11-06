@@ -1,0 +1,4 @@
+# Inference uses exported models and only requires the main requirements.txt.
+huggingface-hub==0.23.5
+safetensors==0.4.5
+omegaconf==2.3.0
