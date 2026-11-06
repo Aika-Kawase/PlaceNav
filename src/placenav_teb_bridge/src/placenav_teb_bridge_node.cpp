@@ -52,8 +52,8 @@ public:
 
     private_nh_.param<std::string>("reference_mode", reference_mode_, "state_machine");
     private_nh_.param("path_timeout", path_timeout_, 0.0);
-    if (reference_mode_ != "state_machine" && reference_mode_ != "latest")
-      throw std::runtime_error("reference_mode must be state_machine or latest");
+    if (reference_mode_ != "state_machine" && reference_mode_ != "latest" && reference_mode_ != "avoidance_commit")
+      throw std::runtime_error("reference_mode must be state_machine, latest or avoidance_commit");
     if (!std::isfinite(path_timeout_) || path_timeout_ < 0.)
       throw std::runtime_error("path_timeout must be nonnegative");
 
@@ -71,7 +71,8 @@ public:
     private_nh_.param("retention_max_deviation", retention_max_deviation_, 0.20);
     private_nh_.param("retention_lookahead", retention_lookahead_, 0.30);
     private_nh_.param("retention_goal_shift", retention_goal_shift_, 0.75);
-    if (retain_safe_path_ && reference_mode_ != "latest")
+    if (reference_mode_ == "avoidance_commit") retain_safe_path_ = true;
+    if (retain_safe_path_ && reference_mode_ != "latest" && reference_mode_ != "avoidance_commit")
       throw std::runtime_error("retain_safe_path requires reference_mode=latest");
     for (double v : {retention_max_duration_, retention_max_deviation_, retention_lookahead_, retention_goal_shift_})
       if (!std::isfinite(v) || v <= 0.) throw std::runtime_error("retention parameters must be finite and positive");
@@ -137,7 +138,7 @@ private:
     latest_path_wall_ = ros::WallTime::now();
     has_latest_placenav_path_ = true;
 
-    if (retain_safe_path_) return;
+    if (retain_safe_path_ && (reference_mode_ != "avoidance_commit" || state_ != NavigationState::NORMAL)) return;
 
     // Keep receiving the newest PlaceNav path during avoidance, but do not let
     // it overwrite the promoted TEB avoidance path.
@@ -438,6 +439,8 @@ private:
     add("reference_mode", reference_mode_);
     add("retain_safe_path", retain_safe_path_ ? "true" : "false");
     add("retention_status", retention_status_);
+    add("latest_reference_stamp", has_latest_placenav_path_?std::to_string(latest_placenav_path_.header.stamp.toSec()):"none");
+    add("avoidance_reference_stamp", std::to_string(avoidance_reference_.header.stamp.toSec()));
     add("retention_age_wall_s", retained_.empty() ? "0" : std::to_string((ros::WallTime::now()-retained_at_).toSec()));
     add("state", reference_mode_ == "latest" ? "TRACKING" : stateName(state_));
     add("active_source", active_source_);
@@ -475,12 +478,82 @@ private:
     diagnostics_publisher_.publish(array);
   }
 
+  // Geometric trigger: includes the robot body and configured clearance, not
+  // just a distance from the sampled centerline points.
+  bool committedReferenceBlocked()
+  {
+    detection_status_="NO_PATH";
+    if (!has_latest_placenav_path_) return false;
+    geometry_msgs::PoseStamped pose;
+    if (!costmap_ros_->isCurrent() || !costmap_ros_->getRobotPose(pose)) {
+      detection_status_="MAP_OR_TF_UNAVAILABLE";return true;
+    }
+    if (latest_placenav_path_.header.frame_id != costmap_ros_->getGlobalFrameID()) {
+      detection_status_="PATH_FRAME_MISMATCH";return true;
+    }
+    placenav_teb_bridge::RetainedPath reference;
+    if (!reference.assign(latest_placenav_path_)) {detection_status_="INVALID_REFERENCE";return true;}
+    // The trigger checks the whole input, even across reversing cusps.
+    reference.poses.clear();
+    for (const auto& p:latest_placenav_path_.poses)
+      reference.poses.push_back({p.pose.position.x,p.pose.position.y,tf2::getYaw(p.pose.orientation)});
+    const placenav_teb_bridge::PathPose robot{pose.pose.position.x,pose.pose.position.y,tf2::getYaw(pose.pose.orientation)};
+    // Prune already passed segments; a lateral mismatch is checked by the
+    // swept connection from the current pose, not mistaken for an obstacle.
+    reference.advance(robot,std::numeric_limits<double>::infinity());
+    auto footprint=costmap_ros_->getRobotFootprint();double clearance=.2;
+    private_nh_.param("TebLocalPlannerROS/min_obstacle_dist",clearance,.2);
+    if (!std::isfinite(clearance)||clearance<0.) {detection_status_="INVALID_CLEARANCE";return true;}
+    costmap_2d::padFootprint(footprint,clearance);
+    auto* map=costmap_ros_->getCostmap();
+    std::unique_lock<costmap_2d::Costmap2D::mutex_t> lock(*(map->getMutex()));
+    const bool blocked=!reference.safe(*map,footprint,robot);
+    detection_status_=blocked?"REFERENCE_FOOTPRINT_BLOCKED":"CLEAR";
+    return blocked;
+  }
+
   void clearRetained()
   {
-    retained_.clear(); awaiting_retained_candidate_ = false;
+    retained_.clear(); retained_tail_=nav_msgs::Path(); awaiting_retained_candidate_ = false;
     has_latest_teb_local_path_ = false; last_retained_command_ = geometry_msgs::Twist();
     nav_msgs::Path empty; empty.header.frame_id=costmap_ros_->getGlobalFrameID();
     empty.header.stamp=ros::Time::now(); retained_path_publisher_.publish(empty);
+  }
+
+  bool adoptRetained(const nav_msgs::Path& path, const placenav_teb_bridge::PathPose& robot,
+                     costmap_2d::Costmap2D& map, const std::vector<geometry_msgs::Point>& footprint)
+  {
+    if (!retained_.assign(path) || !retained_.advance(robot,retention_max_deviation_) ||
+        !retained_.safe(map,footprint,robot)) {retained_.clear();return false;}
+    retained_tail_=nav_msgs::Path();
+    if (reference_mode_ == "avoidance_commit" && state_ == NavigationState::AVOIDING &&
+        retained_.poses.size()<path.poses.size()) {
+      retained_tail_=path;
+      retained_tail_.poses.erase(retained_tail_.poses.begin(),retained_tail_.poses.begin()+retained_.poses.size()-1);
+      // Check all remaining gear segments before accepting the complete route.
+      auto full=retained_;
+      for (std::size_t i=retained_.poses.size();i<path.poses.size();++i) {
+        const auto& p=path.poses[i].pose;
+        full.poses.push_back({p.position.x,p.position.y,tf2::getYaw(p.orientation)});
+      }
+      if (!full.safe(map,footprint,robot)) {retained_.clear();retained_tail_=nav_msgs::Path();return false;}
+    }
+    retained_at_=ros::WallTime::now();retained_goal_=requested_goal_;
+    nav_msgs::Path published=path;
+    // In commit mode RViz shows the entire committed route, including later gears.
+    if (reference_mode_ != "avoidance_commit") published.poses.resize(retained_.poses.size());
+    retained_path_publisher_.publish(published);return true;
+  }
+
+  bool retainedRouteSafe(costmap_2d::Costmap2D& map,const std::vector<geometry_msgs::Point>& footprint,
+                         const placenav_teb_bridge::PathPose& robot) const
+  {
+    auto full=retained_;
+    for (std::size_t i=1;i<retained_tail_.poses.size();++i) {
+      const auto& p=retained_tail_.poses[i].pose;
+      full.poses.push_back({p.position.x,p.position.y,tf2::getYaw(p.orientation)});
+    }
+    return full.safe(map,footprint,robot);
   }
 
   void retainedControl()
@@ -520,9 +593,11 @@ private:
       const auto& incoming=latest_placenav_path_.poses.back().pose;
       const bool goal_changed=std::hypot(incoming.position.x-retained_goal_.x,incoming.position.y-retained_goal_.y)>retention_goal_shift_ ||
         std::abs(placenav_teb_bridge::angle(tf2::getYaw(incoming.orientation)-retained_goal_.yaw))>.78;
-      if (goal_changed || (wall-retained_at_).toSec()>retention_max_duration_ ||
-          !retained_.advance(robot,retention_max_deviation_) || !retained_.safe(*map,footprint,robot)) {
-        retention_status_=goal_changed?"GOAL_CHANGED":"EXPIRED_DEVIATED_OR_BLOCKED";clearRetained();
+      const bool policy_release=reference_mode_ != "avoidance_commit" &&
+        (goal_changed || (wall-retained_at_).toSec()>retention_max_duration_);
+      if (policy_release ||
+          !retained_.advance(robot,retention_max_deviation_) || !retainedRouteSafe(*map,footprint,robot)) {
+        retention_status_=policy_release?"GOAL_CHANGED_OR_EXPIRED":"DEVIATED_OR_BLOCKED";clearRetained();
       }
     }
     if (retained_.empty() && awaiting_retained_candidate_ && has_latest_teb_local_path_ &&
@@ -531,16 +606,11 @@ private:
         (now-latest_teb_local_path_.header.stamp).toSec()<.5 &&
         latest_teb_local_path_.header.frame_id==costmap_ros_->getGlobalFrameID()) {
       const auto& incoming=latest_placenav_path_.poses.back().pose;
-      const bool request_current=std::hypot(incoming.position.x-requested_goal_.x,incoming.position.y-requested_goal_.y)<=retention_goal_shift_ &&
-        std::abs(placenav_teb_bridge::angle(tf2::getYaw(incoming.orientation)-requested_goal_.yaw))<=.78;
-      if (request_current && retained_.assign(latest_teb_local_path_) && retained_.advance(robot,retention_max_deviation_) &&
-          retained_.safe(*map,footprint,robot)) {
-        retained_at_=wall; const auto& goal=latest_placenav_path_.poses.back().pose;
-        retained_goal_={goal.position.x,goal.position.y,tf2::getYaw(goal.orientation)};
-        nav_msgs::Path published=latest_teb_local_path_;
-        published.poses.resize(retained_.poses.size());
-        retained_path_publisher_.publish(published);retention_status_="ADOPTED";
-      } else {retained_.clear();retention_status_="CANDIDATE_UNSAFE";}
+      const bool request_current=(reference_mode_ == "avoidance_commit" && state_ == NavigationState::AVOIDING) || (std::hypot(incoming.position.x-requested_goal_.x,incoming.position.y-requested_goal_.y)<=retention_goal_shift_ &&
+        std::abs(placenav_teb_bridge::angle(tf2::getYaw(incoming.orientation)-requested_goal_.yaw))<=.78);
+      if (request_current && adoptRetained(latest_teb_local_path_,robot,*map,footprint))
+        retention_status_="ADOPTED";
+      else {retained_.clear();retention_status_="CANDIDATE_UNSAFE";}
       awaiting_retained_candidate_=false;
     }
     if (!retained_.empty()) {
@@ -553,7 +623,25 @@ private:
       bool valid=true;for(double v:{vx,back,w,ax,aw})valid=valid&&std::isfinite(v)&&v>0.;
       command=valid?retained_.command(robot,retention_lookahead_,retained_.gear>0?vx:back,w,.12):geometry_msgs::Twist();
       if (!valid || std::abs(command.linear.x)+std::abs(command.angular.z)<1e-6) {
-        clearRetained();retention_status_="FINISHED_OR_UNTRACKABLE";
+        const bool reached=std::hypot(robot.x-retained_.poses.back().x,robot.y-retained_.poses.back().y)<=.12;
+        if (valid && reference_mode_ == "avoidance_commit" && state_ == NavigationState::AVOIDING && reached) {
+          if (!retained_tail_.poses.empty()) {
+            const auto next=retained_tail_;clearRetained();
+            if (adoptRetained(next,robot,*map,footprint)) {
+              retention_status_="GEAR_CHANGE";
+              map_lock.unlock();cmd_vel_publisher_.publish(command);
+              publishDiagnostics("RETENTION_GEAR_CHANGE",-1,retention_status_,command);return;
+            }
+          } else {state_=NavigationState::RECOVERING;publishState();}
+        }
+        if (valid && reference_mode_ == "avoidance_commit" && state_ == NavigationState::RECOVERING && reached) {
+          clearRetained();state_=NavigationState::NORMAL;publishState();
+          setActivePlan(latest_placenav_path_,"latest PlaceNav at recovery goal");
+          retention_status_="RECOVERY_GOAL_REACHED";
+          map_lock.unlock();cmd_vel_publisher_.publish(command);
+          publishDiagnostics("GOAL_REACHED",0,retention_status_,command);return;
+        }
+        clearRetained();retention_status_=reached?"ENDPOINT_REACHED":"UNTRACKABLE";
       } else {
         command.linear.x=std::max(last_retained_command_.linear.x-ax*dt,std::min(last_retained_command_.linear.x+ax*dt,command.linear.x));
         command.angular.z=std::max(last_retained_command_.angular.z-aw*dt,std::min(last_retained_command_.angular.z+aw*dt,command.angular.z));
@@ -577,14 +665,24 @@ private:
     map_lock.unlock();
     if (retained_.empty()) {
       command=geometry_msgs::Twist();
-      setActivePlan(latest_placenav_path_,"retention replan");
+      const auto& reference=reference_mode_ == "avoidance_commit" && state_ == NavigationState::AVOIDING
+        ? avoidance_reference_ : latest_placenav_path_;
+      setActivePlan(reference,state_ == NavigationState::RECOVERING?"recovery latest PlaceNav":"retention replan");
       geometry_msgs::TwistStamped velocity,result;std::string detail;
-      const auto& goal=latest_placenav_path_.poses.back().pose;
+      const auto& goal=reference.poses.back().pose;
       requested_goal_={goal.position.x,goal.position.y,tf2::getYaw(goal.orientation)};
       retention_request_=now;awaiting_retained_candidate_=true;has_latest_teb_local_path_=false;
       teb_outcome=teb_planner_.computeVelocityCommands(pose,velocity,result,detail);
       if(teb_outcome!=0) {awaiting_retained_candidate_=false;retention_status_="TEB_REPLAN_FAILED";}
       reason="RETENTION_WAITING_FOR_SAFE_PLAN";
+    }
+    // A collision-checked connection to the newest reference is now available.
+    // Resume the normal latest-reference planner after this first tracking tick.
+    if (reference_mode_ == "avoidance_commit" && state_ == NavigationState::RECOVERING &&
+        !retained_.empty() && retention_status_ == "FOLLOWING") {
+      clearRetained();state_=NavigationState::NORMAL;publishState();
+      setActivePlan(latest_placenav_path_,"latest PlaceNav after recovery");
+      retention_status_="RECOVERY_CONNECTION_VALID";
     }
     last_retained_command_=command;
     if (pathExpired()) {invalidatePlan("INPUT_TIMEOUT");command=geometry_msgs::Twist();reason="INPUT_TIMEOUT";}
@@ -596,8 +694,26 @@ private:
     std::lock_guard<std::mutex> lock(planner_mutex_);
     geometry_msgs::Twist command;
     if (pathExpired()) invalidatePlan("INPUT_TIMEOUT");
-    if (retain_safe_path_) {retainedControl();return;}
-    const bool blocked = obstacleBlocksLatestPlaceNavPath();
+    bool blocked=false;
+    if (reference_mode_ == "avoidance_commit") {
+      if (state_ == NavigationState::NORMAL) {
+        const bool requires_avoidance=committedReferenceBlocked();
+        if (detection_status_ != "CLEAR" && detection_status_ != "REFERENCE_FOOTPRINT_BLOCKED" &&
+            detection_status_ != "NO_PATH") {
+          // Missing sensing/TF is a stop condition, not evidence of an obstacle.
+          publishStop();publishDiagnostics(detection_status_,-1,"",command);return;
+        }
+        if (requires_avoidance) {
+          avoidance_reference_=latest_placenav_path_;
+          clearRetained();state_=NavigationState::AVOIDING;
+          retention_status_="AVOIDANCE_START";publishState();
+        }
+      }
+      if (state_ != NavigationState::NORMAL) {retainedControl();return;}
+    } else {
+      if (retain_safe_path_) {retainedControl();return;}
+      blocked=obstacleBlocksLatestPlaceNavPath();
+    }
     if (reference_mode_ == "state_machine" &&
         (detection_status_ == "CLEAR" || detection_status_ == "BLOCKED"))
       updateNavigationState(blocked);
@@ -697,6 +813,8 @@ private:
   NavigationState state_{NavigationState::NORMAL};
   ros::Time state_entered_at_;
   ros::Time last_obstacle_at_;
+  nav_msgs::Path retained_tail_;
+  nav_msgs::Path avoidance_reference_;
   nav_msgs::Path latest_placenav_path_;
   nav_msgs::Path latest_teb_local_path_;
   nav_msgs::Path active_plan_;

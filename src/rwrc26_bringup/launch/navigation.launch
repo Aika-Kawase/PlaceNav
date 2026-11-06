@@ -33,7 +33,7 @@
   <arg name="global_frame" default="odom"/>
   <arg name="robot_base_frame" default="base_link"/>
   <arg name="odom_topic" default="/odom"/>
-  <arg name="valid_reference" value="$(eval {True: True}[arg('reference_mode') in ['state_machine', 'latest'] and 0 &lt;= float(arg('path_timeout')) &lt; float('inf')])"/>
+  <arg name="valid_reference" value="$(eval {True: True}[arg('reference_mode') in ['state_machine', 'latest', 'avoidance_commit'] and 0 &lt;= float(arg('path_timeout')) &lt; float('inf')])"/>
   <!-- Explicit opt-in switches the planner output to the live robot topic. -->
   <arg name="drive_robot" default="false"/>
   <arg name="robot_cmd_vel_topic" default="/local_path/cmd_vel"/>
