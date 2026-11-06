@@ -485,8 +485,8 @@ private:
     detection_status_="NO_PATH";
     if (!has_latest_placenav_path_) return false;
     geometry_msgs::PoseStamped pose;
-    if (!costmap_ros_->isCurrent() || !costmap_ros_->getRobotPose(pose)) {
-      detection_status_="MAP_OR_TF_UNAVAILABLE";return true;
+    if (!costmap_ros_->getRobotPose(pose)) {
+      detection_status_="ROBOT_TF_UNAVAILABLE";return true;
     }
     if (latest_placenav_path_.header.frame_id != costmap_ros_->getGlobalFrameID()) {
       detection_status_="PATH_FRAME_MISMATCH";return true;
@@ -572,7 +572,6 @@ private:
     last_retention_ros_=now;
     if (!has_latest_placenav_path_) reason=stop_reason_;
     else if (latest_placenav_path_.header.frame_id!=costmap_ros_->getGlobalFrameID()) reason="RETENTION_INPUT_FRAME_MISMATCH";
-    else if (!costmap_ros_->isCurrent()) reason="COSTMAP_NOT_CURRENT";
     else if (!costmap_ros_->getRobotPose(pose)) reason="ROBOT_TF_UNAVAILABLE";
     if (reason!="COMMAND_VALID") {
       clearRetained(); retention_status_=reason;cmd_vel_publisher_.publish(command);
