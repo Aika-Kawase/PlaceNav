@@ -21,7 +21,7 @@ catkin_package(
                  std_msgs teb_local_planner tf2 tf2_ros visualization_msgs
 )
 
-include_directories(${catkin_INCLUDE_DIRS})
+include_directories(include ${catkin_INCLUDE_DIRS})
 
 add_executable(placenav_teb_bridge_node src/placenav_teb_bridge_node.cpp)
 target_compile_features(placenav_teb_bridge_node PRIVATE cxx_std_14)
@@ -44,3 +44,11 @@ install(DIRECTORY config launch stage
 install(FILES README.md
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )
+
+if(CATKIN_ENABLE_TESTING)
+  catkin_add_gtest(test_retained_path test/test_retained_path.cpp)
+  if(TARGET test_retained_path)
+    target_compile_features(test_retained_path PRIVATE cxx_std_14)
+    target_link_libraries(test_retained_path ${catkin_LIBRARIES})
+  endif()
+endif()

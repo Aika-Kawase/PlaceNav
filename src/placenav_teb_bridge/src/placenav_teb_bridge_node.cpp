@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <costmap_2d/cost_values.h>
+#include <costmap_2d/footprint.h>
 #include <costmap_2d/costmap_2d_ros.h>
 #include <geometry_msgs/Twist.h>
 #include <geometry_msgs/TwistStamped.h>
@@ -19,6 +20,7 @@
 #include <std_msgs/String.h>
 #include <teb_local_planner/teb_local_planner_ros.h>
 #include <tf2/utils.h>
+#include <placenav_teb_bridge/retained_path.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 
@@ -64,12 +66,22 @@ public:
       throw std::runtime_error("Obstacle trigger distance and corridor width must be positive");
     }
 
+    private_nh_.param("retain_safe_path", retain_safe_path_, false);
+    private_nh_.param("retention_max_duration", retention_max_duration_, 3.0);
+    private_nh_.param("retention_max_deviation", retention_max_deviation_, 0.20);
+    private_nh_.param("retention_lookahead", retention_lookahead_, 0.30);
+    private_nh_.param("retention_goal_shift", retention_goal_shift_, 0.75);
+    if (retain_safe_path_ && reference_mode_ != "latest")
+      throw std::runtime_error("retain_safe_path requires reference_mode=latest");
+    for (double v : {retention_max_duration_, retention_max_deviation_, retention_lookahead_, retention_goal_shift_})
+      if (!std::isfinite(v) || v <= 0.) throw std::runtime_error("retention parameters must be finite and positive");
     costmap_ros_->start();
     teb_planner_.initialize("TebLocalPlannerROS", &tf_buffer_, costmap_ros_.get());
 
     cmd_vel_publisher_ = nh_.advertise<geometry_msgs::Twist>(cmd_vel_topic_, 1);
     active_path_publisher_ = private_nh_.advertise<nav_msgs::Path>("active_global_path", 1, true);
     state_publisher_ = private_nh_.advertise<std_msgs::String>("navigation_state", 1, true);
+    retained_path_publisher_ = private_nh_.advertise<nav_msgs::Path>("retained_safe_path", 1, true);
     diagnostics_publisher_ = private_nh_.advertise<diagnostic_msgs::DiagnosticArray>("diagnostics", 1);
     path_subscriber_ = nh_.subscribe(path_topic_, 1, &PlaceNavTebBridge::pathCallback, this);
     teb_local_plan_subscriber_ = nh_.subscribe(
@@ -125,6 +137,8 @@ private:
     latest_path_wall_ = ros::WallTime::now();
     has_latest_placenav_path_ = true;
 
+    if (retain_safe_path_) return;
+
     // Keep receiving the newest PlaceNav path during avoidance, but do not let
     // it overwrite the promoted TEB avoidance path.
     if (reference_mode_ == "state_machine" && state_ == NavigationState::AVOIDING)
@@ -161,6 +175,15 @@ private:
     {
       ROS_WARN_THROTTLE(1.0, "%s has no frame_id", label);
       return false;
+    }
+    if (retain_safe_path_) {
+      for (const auto& stamped : path.poses) {
+        const auto& p=stamped.pose;
+        const auto& q=p.orientation;
+        const double norm=q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w;
+        if (!std::isfinite(p.position.x)||!std::isfinite(p.position.y)||!std::isfinite(norm)||norm<1e-12)
+          return false;
+      }
     }
     return true;
   }
@@ -375,6 +398,7 @@ private:
 
   void invalidatePlan(const std::string& reason)
   {
+    clearRetained();
     has_plan_ = has_active_plan_ = has_latest_placenav_path_ = false;
     has_latest_teb_local_path_ = false;
     active_plan_ = nav_msgs::Path();
@@ -412,6 +436,9 @@ private:
       status.values.push_back(item);
     };
     add("reference_mode", reference_mode_);
+    add("retain_safe_path", retain_safe_path_ ? "true" : "false");
+    add("retention_status", retention_status_);
+    add("retention_age_wall_s", retained_.empty() ? "0" : std::to_string((ros::WallTime::now()-retained_at_).toSec()));
     add("state", reference_mode_ == "latest" ? "TRACKING" : stateName(state_));
     add("active_source", active_source_);
     add("teb_outcome", std::to_string(outcome));
@@ -448,11 +475,128 @@ private:
     diagnostics_publisher_.publish(array);
   }
 
+  void clearRetained()
+  {
+    retained_.clear(); awaiting_retained_candidate_ = false;
+    has_latest_teb_local_path_ = false; last_retained_command_ = geometry_msgs::Twist();
+    nav_msgs::Path empty; empty.header.frame_id=costmap_ros_->getGlobalFrameID();
+    empty.header.stamp=ros::Time::now(); retained_path_publisher_.publish(empty);
+  }
+
+  void retainedControl()
+  {
+    using placenav_teb_bridge::PathPose;
+    geometry_msgs::Twist command;
+    const auto now=ros::Time::now(); const auto wall=ros::WallTime::now();
+    const double dt=last_retention_tick_.isZero()?0.:std::min(.25,std::max(0.,(wall-last_retention_tick_).toSec()));
+    last_retention_tick_=wall;
+    geometry_msgs::PoseStamped pose;
+    std::string reason="COMMAND_VALID";
+    int teb_outcome=-1;
+    if (!last_retention_ros_.isZero() && now<last_retention_ros_) {
+      invalidatePlan("CLOCK_RESET"); retention_status_="CLOCK_RESET";last_retention_ros_=now;return;
+    }
+    last_retention_ros_=now;
+    if (!has_latest_placenav_path_) reason=stop_reason_;
+    else if (latest_placenav_path_.header.frame_id!=costmap_ros_->getGlobalFrameID()) reason="RETENTION_INPUT_FRAME_MISMATCH";
+    else if (!costmap_ros_->isCurrent()) reason="COSTMAP_NOT_CURRENT";
+    else if (!costmap_ros_->getRobotPose(pose)) reason="ROBOT_TF_UNAVAILABLE";
+    if (reason!="COMMAND_VALID") {
+      clearRetained(); retention_status_=reason;cmd_vel_publisher_.publish(command);
+      publishDiagnostics(reason,-1,"",command); return;
+    }
+    const PathPose robot{pose.pose.position.x,pose.pose.position.y,tf2::getYaw(pose.pose.orientation)};
+    auto* map=costmap_ros_->getCostmap();
+    std::unique_lock<costmap_2d::Costmap2D::mutex_t> map_lock(*(map->getMutex()));
+    auto footprint=costmap_ros_->getRobotFootprint();
+    double clearance=.2;
+    private_nh_.param("TebLocalPlannerROS/min_obstacle_dist",clearance,.2);
+    if (!std::isfinite(clearance)||clearance<0.) {
+      map_lock.unlock();clearRetained();retention_status_="INVALID_CLEARANCE";
+      cmd_vel_publisher_.publish(command);publishDiagnostics("INVALID_CLEARANCE",-1,"",command);return;
+    }
+    costmap_2d::padFootprint(footprint,clearance);
+    if (!retained_.empty()) {
+      const auto& incoming=latest_placenav_path_.poses.back().pose;
+      const bool goal_changed=std::hypot(incoming.position.x-retained_goal_.x,incoming.position.y-retained_goal_.y)>retention_goal_shift_ ||
+        std::abs(placenav_teb_bridge::angle(tf2::getYaw(incoming.orientation)-retained_goal_.yaw))>.78;
+      if (goal_changed || (wall-retained_at_).toSec()>retention_max_duration_ ||
+          !retained_.advance(robot,retention_max_deviation_) || !retained_.safe(*map,footprint,robot)) {
+        retention_status_=goal_changed?"GOAL_CHANGED":"EXPIRED_DEVIATED_OR_BLOCKED";clearRetained();
+      }
+    }
+    if (retained_.empty() && awaiting_retained_candidate_ && has_latest_teb_local_path_ &&
+        latest_teb_local_path_.header.stamp>=retention_request_ &&
+        latest_teb_local_path_.header.stamp<=now &&
+        (now-latest_teb_local_path_.header.stamp).toSec()<.5 &&
+        latest_teb_local_path_.header.frame_id==costmap_ros_->getGlobalFrameID()) {
+      const auto& incoming=latest_placenav_path_.poses.back().pose;
+      const bool request_current=std::hypot(incoming.position.x-requested_goal_.x,incoming.position.y-requested_goal_.y)<=retention_goal_shift_ &&
+        std::abs(placenav_teb_bridge::angle(tf2::getYaw(incoming.orientation)-requested_goal_.yaw))<=.78;
+      if (request_current && retained_.assign(latest_teb_local_path_) && retained_.advance(robot,retention_max_deviation_) &&
+          retained_.safe(*map,footprint,robot)) {
+        retained_at_=wall; const auto& goal=latest_placenav_path_.poses.back().pose;
+        retained_goal_={goal.position.x,goal.position.y,tf2::getYaw(goal.orientation)};
+        nav_msgs::Path published=latest_teb_local_path_;
+        published.poses.resize(retained_.poses.size());
+        retained_path_publisher_.publish(published);retention_status_="ADOPTED";
+      } else {retained_.clear();retention_status_="CANDIDATE_UNSAFE";}
+      awaiting_retained_candidate_=false;
+    }
+    if (!retained_.empty()) {
+      double vx=.2,back=.1,w=.4,ax=.3,aw=.4;
+      private_nh_.getParam("TebLocalPlannerROS/max_vel_x",vx);
+      private_nh_.getParam("TebLocalPlannerROS/max_vel_x_backwards",back);
+      private_nh_.getParam("TebLocalPlannerROS/max_vel_theta",w);
+      private_nh_.getParam("TebLocalPlannerROS/acc_lim_x",ax);
+      private_nh_.getParam("TebLocalPlannerROS/acc_lim_theta",aw);
+      bool valid=true;for(double v:{vx,back,w,ax,aw})valid=valid&&std::isfinite(v)&&v>0.;
+      command=valid?retained_.command(robot,retention_lookahead_,retained_.gear>0?vx:back,w,.12):geometry_msgs::Twist();
+      if (!valid || std::abs(command.linear.x)+std::abs(command.angular.z)<1e-6) {
+        clearRetained();retention_status_="FINISHED_OR_UNTRACKABLE";
+      } else {
+        command.linear.x=std::max(last_retained_command_.linear.x-ax*dt,std::min(last_retained_command_.linear.x+ax*dt,command.linear.x));
+        command.angular.z=std::max(last_retained_command_.angular.z-aw*dt,std::min(last_retained_command_.angular.z+aw*dt,command.angular.z));
+        command.linear.x=std::max(-back,std::min(vx,command.linear.x));
+        command.angular.z=std::max(-w,std::min(w,command.angular.z));
+        // The tracking arc can cut a corner: check the actual command as well as the retained path.
+        bool arc_safe=true;
+        const double horizon=std::max(.5,std::abs(command.linear.x)/ax);
+        double radius=0.;for(const auto& p:footprint)radius=std::max(radius,std::hypot(p.x,p.y));
+        const int steps=std::max(1,int(std::ceil(horizon*(std::abs(command.linear.x)+radius*std::abs(command.angular.z))/(map->getResolution()*.5))));
+        for(int i=0;i<=steps && arc_safe;++i) {
+          const double t=horizon*i/steps,turn=command.angular.z*t;
+          const double dx=std::abs(command.angular.z)>1e-6?command.linear.x*std::sin(turn)/command.angular.z:command.linear.x*t;
+          const double dy=std::abs(command.angular.z)>1e-6?command.linear.x*(1-std::cos(turn))/command.angular.z:0.;
+          arc_safe=placenav_teb_bridge::footprintSafe(*map,footprint,{robot.x+std::cos(robot.yaw)*dx-std::sin(robot.yaw)*dy,robot.y+std::sin(robot.yaw)*dx+std::cos(robot.yaw)*dy,robot.yaw+turn});
+        }
+        if (!arc_safe) {clearRetained();command=geometry_msgs::Twist();retention_status_="TRACKING_ARC_BLOCKED";}
+        else retention_status_="FOLLOWING";
+      }
+    }
+    map_lock.unlock();
+    if (retained_.empty()) {
+      command=geometry_msgs::Twist();
+      setActivePlan(latest_placenav_path_,"retention replan");
+      geometry_msgs::TwistStamped velocity,result;std::string detail;
+      const auto& goal=latest_placenav_path_.poses.back().pose;
+      requested_goal_={goal.position.x,goal.position.y,tf2::getYaw(goal.orientation)};
+      retention_request_=now;awaiting_retained_candidate_=true;has_latest_teb_local_path_=false;
+      teb_outcome=teb_planner_.computeVelocityCommands(pose,velocity,result,detail);
+      if(teb_outcome!=0) {awaiting_retained_candidate_=false;retention_status_="TEB_REPLAN_FAILED";}
+      reason="RETENTION_WAITING_FOR_SAFE_PLAN";
+    }
+    last_retained_command_=command;
+    if (pathExpired()) {invalidatePlan("INPUT_TIMEOUT");command=geometry_msgs::Twist();reason="INPUT_TIMEOUT";}
+    cmd_vel_publisher_.publish(command);publishDiagnostics(reason,teb_outcome,retention_status_,command);
+  }
+
   void controlCallback(const ros::TimerEvent&)
   {
     std::lock_guard<std::mutex> lock(planner_mutex_);
     geometry_msgs::Twist command;
     if (pathExpired()) invalidatePlan("INPUT_TIMEOUT");
+    if (retain_safe_path_) {retainedControl();return;}
     const bool blocked = obstacleBlocksLatestPlaceNavPath();
     if (reference_mode_ == "state_machine" &&
         (detection_status_ == "CLEAR" || detection_status_ == "BLOCKED"))
@@ -508,6 +652,15 @@ private:
     }
   }
 
+  bool retain_safe_path_{false},awaiting_retained_candidate_{false};
+  double retention_max_duration_{3.},retention_max_deviation_{.2},retention_lookahead_{.3},retention_goal_shift_{.75};
+  placenav_teb_bridge::RetainedPath retained_;
+  placenav_teb_bridge::PathPose retained_goal_{},requested_goal_{};
+  ros::WallTime retained_at_,last_retention_tick_;
+  ros::Time retention_request_,last_retention_ros_;
+  geometry_msgs::Twist last_retained_command_;
+  std::string retention_status_{"DISABLED"};
+  ros::Publisher retained_path_publisher_;
   ros::NodeHandle nh_;
   ros::NodeHandle private_nh_;
   tf2_ros::Buffer tf_buffer_;

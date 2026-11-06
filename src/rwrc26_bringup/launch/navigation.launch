@@ -27,6 +27,7 @@
   <arg name="navigation_visualization" default="true"/>
   <!-- Match bridge.launch defaults; explicit args override bridge_config. -->
   <arg name="reference_mode" default="latest"/>
+  <arg name="retain_safe_path" default="false"/>
   <arg name="path_timeout" default="0.0"/>
   <arg name="shrink_horizon_backup" default="true"/>
   <arg name="global_frame" default="odom"/>
@@ -93,6 +94,7 @@
         output="screen" required="true">
     <param name="cmd_vel_topic" value="$(arg cmd_vel_topic)"/>
     <param name="diagnostics_enabled" value="$(arg diagnostics)"/>
+    <param name="retain_safe_path" value="$(arg retain_safe_path)"/>
     <param name="reference_mode" value="$(arg reference_mode)"/>
     <param name="path_timeout" type="double" value="$(arg path_timeout)"/>
     <param name="TebLocalPlannerROS/shrink_horizon_backup" type="bool" value="$(arg shrink_horizon_backup)"/>

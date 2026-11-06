@@ -1,3 +1,11 @@
+# Opt-in: track a collision-checked TEB path without reoptimizing it each tick.
+# Requires reference_mode=latest. Enable through retain_safe_path:=true.
+retain_safe_path: false
+retention_max_duration: 3.0
+retention_max_deviation: 0.20
+retention_lookahead: 0.30
+retention_goal_shift: 0.75
+
 path_topic: /placenav/gnm_path
 cmd_vel_topic: /cmd_vel
 controller_frequency: 5.0

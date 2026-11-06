@@ -1,4 +1,4 @@
-# The 27 user-requested topics. Some depend on the installed PlaceNav version;
+# Navigation and retained-path diagnostics. Some depend on the installed PlaceNav version;
 # rosbag also subscribes to topics that are not currently published.
 - /usb_cam/image_raw/compressed
 - /usb_cam/camera_info
@@ -27,3 +27,5 @@
 - /realsense/depth/camera_info
 - /realsense/depth/color/points
 - /realsense/depth_registered/points
+- /placenav_teb_bridge/retained_safe_path
+- /placenav_teb_bridge/diagnostics
