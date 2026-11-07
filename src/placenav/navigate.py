@@ -303,6 +303,7 @@ class PlaceNavNode:
 
         first_pass = True
         reached_goal = False
+        previous_subgoal_idx = None
         rate = rospy.Rate(self.robot_config['frame_rate'])
         while not rospy.is_shutdown():
 
@@ -344,7 +345,16 @@ class PlaceNavNode:
                         raise ValueError(f"Filter mode {args.filter_mode} not recognized for subgoal mode {args.subgoal_mode}")
                     
                     # How many nodes ahead from closest node to choose the subgoal
-                    subgoal_idx = min(closest_node_idx + args.lookahead, args.goal_node_idx)
+                    candidate_subgoal_idx = min(closest_node_idx + args.lookahead, args.goal_node_idx)
+                    subgoal_idx = (
+                        candidate_subgoal_idx if previous_subgoal_idx is None
+                        else max(previous_subgoal_idx, candidate_subgoal_idx)
+                    )
+                    if subgoal_idx != candidate_subgoal_idx:
+                        rospy.loginfo_throttle(
+                            2.0, f"Keeping subgoal {subgoal_idx}; VPR proposed backward "
+                            f"subgoal {candidate_subgoal_idx} (current node {closest_node_idx})"
+                        )
                     sg_img = self.topomap_images[subgoal_idx].to(self.device)
 
                     # Predict the waypoints to subgoal
@@ -398,6 +408,11 @@ class PlaceNavNode:
                 # Official ViNT/NoMaD actions are normalized displacements, not
                 # meters. Preserve legacy GNM behavior; scale only configured models.
                 waypoints[:, :2] *= self.waypoint_scale
+
+                # Only commit a target after inference produced a usable path.
+                # Keep the VPR estimate/belief unchanged for localization diagnostics.
+                if args.subgoal_mode == 'place_recognition':
+                    previous_subgoal_idx = subgoal_idx
 
                 # Check if the goal has been reached
                 reached_goal = closest_node_idx == args.goal_node_idx

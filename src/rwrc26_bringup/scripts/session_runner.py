@@ -47,7 +47,7 @@ def navigation_command(params):
                '--window-radius', str(radius)]
     integers = {'start_node_idx': 0, 'goal_node_idx': -1, 'lookahead': 1,
                 'close_threshold': 3, 'target_waypoint_idx': 2, 'nomad_seed': 0,
-                'transition_model_window_lower': -1, 'transition_model_window_upper': 2,
+                'transition_model_window_lower': 0, 'transition_model_window_upper': 2,
                 'filter_delta': 10}
     for name, default in integers.items():
         command += ['--'+name.replace('_', '-'), str(int(params.get(name, default)))]

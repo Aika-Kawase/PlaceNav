@@ -18,6 +18,15 @@ class NavigationLaunchTest(unittest.TestCase):
         config = load_config_default([(str(LAUNCH), list(args))], 11311, verbose=False)
         return config, {name: param.value for name, param in config.params.items()}
 
+    def test_vpr_transition_window_defaults_and_override(self):
+        _, params = self.load()
+        prefix = '/placenav_runner/transition_model_window_'
+        self.assertEqual(params[prefix+'lower'], 0)
+        self.assertEqual(params[prefix+'upper'], 2)
+        _, params = self.load('transition_model_window_lower:=-1', 'transition_model_window_upper:=3')
+        self.assertEqual(params[prefix+'lower'], -1)
+        self.assertEqual(params[prefix+'upper'], 3)
+
     def test_modes_and_reference_controls_reach_actual_teb(self):
         snapshots = {}
         for fusion, profile in (('layers', 'current'), ('layers', 'matched'), ('points', 'matched')):

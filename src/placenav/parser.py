@@ -123,15 +123,15 @@ def parse_args():
     # Bayesian filter params
     parser.add_argument(
         "--transition-model-window-lower",
-        default=-1,
+        default=0,
         type=int,
-        help="""Lower window of the transition model (default: -1)""",
+        help="""Inclusive lower transition offset (default: 0, no backward transition)""",
     )
     parser.add_argument(
         "--transition-model-window-upper",
         default=2,
         type=int,
-        help="""Upper window of the transition model (default: 2)""",
+        help="""Exclusive upper transition offset (default: 2, allows offsets 0 and +1)""",
     )
     parser.add_argument(
         "--filter-delta",

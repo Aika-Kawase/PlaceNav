@@ -97,7 +97,7 @@ bag記録のトピック一覧は自動改名しないため、トピックを�
 | `lookahead` / `close_threshold` | `1` / `3` |
 | `target_waypoint_idx` / `nomad_seed` | `2` / `0` |
 | `device` | `cuda` |
-| `transition_model_window_lower` / `transition_model_window_upper` | `-1` / `2` |
+| `transition_model_window_lower` / `transition_model_window_upper` | `0` / `2`（上限は含まない：同じノード・1つ先） |
 | `filter_delta` | `10` |
 | `recompute_place_recognition_db` | `false` |
 | `img_size` | `[]`（モデルの既定サイズ）。例：`'img_size:=[96,96]'` |
@@ -108,7 +108,24 @@ bag記録のトピック一覧は自動改名しないため、トピックを�
 `navigate_whill.sh`と`src/config`の設定を使用する。
 `image_topic`は深度adapterの入力を指定する。PlaceNavのカメラ入力は`config/robots.yaml`で設定する。
 別の配置では`placenav_src`を実際の`navigate_whill.sh`があるディレクトリに変更する。
-`navigate_whill.sh`には経路adapterのフレーム指定だけを追加し、推論・目標選択ロジックは変更していない。
+`navigate_whill.sh`は指定した引数を推論ノードへ渡す。
+
+### VPRサブゴールの後戻り禁止
+
+`subgoal_mode=place_recognition`では、前回有効な経路を出したサブゴールより
+小さい番号を採用しない。NoMaD等へ渡す目標画像を選ぶ前に制限し、表示・診断にも
+同じ採用番号を出す。現在ノードの推定値とBayesの確率分布は変更しない。
+Bayesian / sliding_windowの両フィルタに適用し、temporal_distance方式は変更しない。
+履歴はナビゲーション開始時に初期化する。非有限の推論結果では採用履歴を進めない。
+
+Bayes遷移窓の既定値も`0 / 2`へ変更した。これは後方への確率遷移を除く設定で、
+最大確率ノードの後戻りそのものを保証する設定ではない。
+起動引数で窓を変更しても、上記のサブゴール後戻り禁止は維持する。
+新しい引数を追加せず、従来の起動コマンドで有効になる。
+
+誤って先のサブゴールを採用した場合も自動で後ろへ戻せなくなる。
+早取り・先飛び自体を防ぐ変更ではないため、実験ではVPR推定と採用目標を分けて確認する。
+TEBの参照方式・速度・コストマップ・NoMaDモデルや距離換算は変更しない。
 
 ## コストマップ・記録・表示
 

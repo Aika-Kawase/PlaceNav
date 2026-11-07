@@ -43,6 +43,8 @@ PY
         self.assertIn('--no-visualization', captured['args'])
         self.assertEqual(captured['args'][captured['args'].index('--wp-model')+1], 'nomad')
         self.assertEqual(captured['args'][captured['args'].index('--pr-model')+1], 'salad')
+        self.assertEqual(captured['args'][captured['args'].index('--transition-model-window-lower')+1], '0')
+        self.assertEqual(captured['args'][captured['args'].index('--transition-model-window-upper')+1], '2')
         self.assertFalse((directory/'unexpected_file').exists())
         self.assertFalse(any(a.startswith('__') for a in captured['args']))
 

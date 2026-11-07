@@ -19,7 +19,7 @@
   <arg name="target_waypoint_idx" default="2"/>
   <arg name="nomad_seed" default="0"/>
   <arg name="device" default="cuda"/>
-  <arg name="transition_model_window_lower" default="-1"/>
+  <arg name="transition_model_window_lower" default="0"/>
   <arg name="transition_model_window_upper" default="2"/>
   <arg name="filter_delta" default="10"/>
   <arg name="recompute_place_recognition_db" default="false"/>
