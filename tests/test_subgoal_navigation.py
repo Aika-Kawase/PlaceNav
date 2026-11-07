@@ -31,10 +31,10 @@ class Publisher:
 
 class NavigationSubgoalTests(unittest.TestCase):
     def run_navigation(self, estimates, *, filter_mode="bayesian", lookahead=1,
-                       goal=9, invalid_frames=(), node=None):
+                       goal=9, start=0, invalid_frames=(), node=None):
         state = SimpleNamespace(frame=0)
         args = argparse.Namespace(
-            start_node_idx=0, goal_node_idx=goal, filter_mode=filter_mode,
+            start_node_idx=start, goal_node_idx=goal, filter_mode=filter_mode,
             subgoal_mode="place_recognition", lookahead=lookahead,
             window_radius=3, target_waypoint_idx=2,
         )
@@ -100,9 +100,9 @@ class NavigationSubgoalTests(unittest.TestCase):
         for msg, goal in zip(result.node.viz_pub.messages, expected):
             np.testing.assert_allclose(msg.waypoints, goal * .2)
 
-    def test_bayesian_jumps_keep_model_goal_and_outputs_monotonic(self):
+    def test_bayesian_jumps_keep_model_goal_and_outputs_to_at_most_one_step(self):
         result = self.run_navigation([2, 4, 1, 3, 6])
-        expected = [3, 5, 5, 5, 7]
+        expected = [2, 3, 3, 4, 5]
         self.assertEqual(result.inference_goals, expected)
         self.assert_published_goals(result, expected)
         self.assertEqual(
@@ -113,8 +113,8 @@ class NavigationSubgoalTests(unittest.TestCase):
 
     def test_sliding_window_uses_same_target_guard(self):
         result = self.run_navigation([2, 0, 3, 1], filter_mode="sliding_window", lookahead=2)
-        self.assertEqual(result.inference_goals, [4, 4, 5, 5])
-        self.assert_published_goals(result, [4, 4, 5, 5])
+        self.assertEqual(result.inference_goals, [3, 3, 4, 4])
+        self.assert_published_goals(result, [3, 3, 4, 4])
         result.querier.initialize_model.assert_not_called()
 
     def test_selecting_final_image_does_not_falsely_confirm_arrival(self):
@@ -126,19 +126,39 @@ class NavigationSubgoalTests(unittest.TestCase):
     def test_new_navigation_run_resets_target_history(self):
         first = self.run_navigation([6])
         second = self.run_navigation([0], node=first.node)
-        self.assertEqual(first.inference_goals, [7])
+        self.assertEqual(first.inference_goals, [2])
         self.assertEqual(second.inference_goals, [1])
         self.assert_published_goals(second, [1])
 
     def test_invalid_prediction_does_not_commit_forward_jump(self):
         result = self.run_navigation([2, 7, 1], invalid_frames=(1,))
-        self.assertEqual(result.inference_goals, [3, 8, 3])
-        self.assert_published_goals(result, [3, 3])
+        self.assertEqual(result.inference_goals, [2, 3, 2])
+        self.assert_published_goals(result, [2, 2])
         self.assertEqual(
             [m.current_node_idx for m in result.node.localization_diagnostics_pub.messages],
             [2, 1],
         )
         result.ros.logerr_throttle.assert_called_once()
+
+    def test_first_match_is_bounded_from_nonzero_start(self):
+        result = self.run_navigation([9], start=4)
+        self.assertEqual(result.inference_goals, [6])
+        self.assert_published_goals(result, [6])
+        self.assertEqual(result.node.goal_pub.messages, [False])
+        behind = self.run_navigation([2], start=4)
+        self.assertEqual(behind.inference_goals, [5])
+
+    def test_far_final_node_estimate_does_not_bypass_target_limit(self):
+        result = self.run_navigation([9, 9, 0])
+        self.assertEqual(result.inference_goals, [2, 3, 3])
+        self.assert_published_goals(result, [2, 3, 3])
+        self.assertEqual(result.node.goal_pub.messages, [False, False, False])
+
+    def test_end_of_map_caps_target_and_keeps_arrival_check(self):
+        result = self.run_navigation([8, 8, 9], start=7, goal=-1)
+        self.assertEqual(result.inference_goals, [9, 9, 9])
+        self.assert_published_goals(result, [9, 9, 9])
+        self.assertEqual(result.node.goal_pub.messages, [False, False, True])
 
 
 if __name__ == "__main__":

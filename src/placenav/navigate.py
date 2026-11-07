@@ -303,7 +303,10 @@ class PlaceNavNode:
 
         first_pass = True
         reached_goal = False
-        previous_subgoal_idx = None
+        # Anchor even the first match to the configured starting target.
+        previous_subgoal_idx = min(
+            max(args.start_node_idx + args.lookahead, 0), args.goal_node_idx
+        )
         rate = rospy.Rate(self.robot_config['frame_rate'])
         while not rospy.is_shutdown():
 
@@ -346,13 +349,13 @@ class PlaceNavNode:
                     
                     # How many nodes ahead from closest node to choose the subgoal
                     candidate_subgoal_idx = min(closest_node_idx + args.lookahead, args.goal_node_idx)
-                    subgoal_idx = (
-                        candidate_subgoal_idx if previous_subgoal_idx is None
-                        else max(previous_subgoal_idx, candidate_subgoal_idx)
+                    subgoal_idx = min(
+                        max(previous_subgoal_idx, candidate_subgoal_idx),
+                        previous_subgoal_idx + 1, args.goal_node_idx,
                     )
                     if subgoal_idx != candidate_subgoal_idx:
                         rospy.loginfo_throttle(
-                            2.0, f"Keeping subgoal {subgoal_idx}; VPR proposed backward "
+                            2.0, f"Restricting subgoal to {subgoal_idx}; VPR proposed "
                             f"subgoal {candidate_subgoal_idx} (current node {closest_node_idx})"
                         )
                     sg_img = self.topomap_images[subgoal_idx].to(self.device)
@@ -416,6 +419,9 @@ class PlaceNavNode:
 
                 # Check if the goal has been reached
                 reached_goal = closest_node_idx == args.goal_node_idx
+                if args.subgoal_mode == 'place_recognition':
+                    # A far VPR jump must not finish before the bounded target catches up.
+                    reached_goal = reached_goal and subgoal_idx == args.goal_node_idx
 
                 # Publish the waypoint
                 chosen_waypoint = waypoints[args.target_waypoint_idx]
