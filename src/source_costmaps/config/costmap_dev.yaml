@@ -66,7 +66,7 @@ local_costmap:
       data_type: PointCloud2
       topic: /obstacles/unik3d/points
       sensor_frame: c2_camera_optical_frame
-      obstacle_range: 1.0 # 6.0
+      obstacle_range: 6.0 # 6.0
       marking: true
       clearing: false
       expected_update_rate: 1.0 # 1.0

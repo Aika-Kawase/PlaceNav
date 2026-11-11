@@ -1,0 +1,46 @@
+<launch>
+  <arg name="topomap_dir" default="whill_short_route_adaptive_c2_tsukuba_2.0"/>
+  <arg name="wp_model" default="nomad"/>
+  <arg name="pr_model" default="salad"/>
+  <arg name="server_host" default="127.0.0.1"/>
+  <arg name="server_port" default="5557"/>
+  <arg name="rviz" default="true"/>
+  <arg name="navigation_visualization" default="false"/>
+
+  <arg name="bag" default=""/>
+  <arg name="bag_rate" default="1.0"/>
+  <arg name="bag_pause" default="true"/>
+  <arg name="bag_camera_transport" default="compressed"/>
+  <arg name="play_bag" value="$(eval arg('bag') != '')"/>
+  <arg name="use_sim_time" default="$(arg play_bag)"/>
+  <arg name="replay_clock_valid" value="$(eval {True: True}[not arg('play_bag') or arg('use_sim_time')])"/>
+
+  <include file="$(find rwrc26_bringup)/launch/navigation.launch">
+    <arg name="topomap_dir" value="$(arg topomap_dir)"/>
+    <arg name="wp_model" value="$(arg wp_model)"/>
+    <arg name="pr_model" value="$(arg pr_model)"/>
+    <arg name="server_host" value="$(arg server_host)"/>
+    <arg name="server_port" value="$(arg server_port)"/>
+    <arg name="rviz" value="$(arg rviz)"/>
+    <arg name="navigation_visualization" value="$(arg navigation_visualization)"/>
+    <arg name="gates_config" default="$(find source_costmaps)/config/gates_dev.yaml"/>
+    <arg name="costmap_config" default="$(find source_costmaps)/config/costmap_dev.yaml"/>
+    <arg name="bridge_config" default="$(find placenav_teb_bridge)/config/bridge_dev.yaml"/>
+    <!-- Keep RViz and the costmap available after PlaceNav reaches the goal. -->
+    <arg name="navigation_required" value="false"/>
+    <arg name="use_sim_time" value="$(arg use_sim_time)"/>
+    <arg name="drive_robot" value="false"/>
+    <arg name="record" value="false"/>
+  </include>
+
+  <group if="$(arg play_bag)">
+    <arg name="camera_topic" value="$(eval {'compressed': '/usb_cam/image_raw/compressed', 'raw': '/usb_cam/image_raw'}[arg('bag_camera_transport')])"/>
+    <arg name="pause_flag" value="$(eval '--pause' if arg('bag_pause') else '')"/>
+    <node if="$(eval arg('bag_camera_transport') == 'compressed')"
+          pkg="image_transport" type="republish" name="navigation_image_republish"
+          args="compressed in:=/usb_cam/image_raw raw out:=/usb_cam/image_raw"/>
+    <!-- Replay sensor data and TF. Recompute the C2 cloud, paths and costmap. -->
+    <node pkg="rosbag" type="play" name="navigation_bag_playback" output="screen"
+          args="--clock --quiet --delay=3 --rate=$(arg bag_rate) $(arg pause_flag) '$(arg bag)' --topics /tf /tf_static /odom /realsense/depth/color/points /usb_cam/camera_info $(arg camera_topic)"/>
+  </group>
+</launch>

@@ -265,6 +265,14 @@ class PlaceNavNode:
             self.robot_config['toponav_viz_info_topic'],
             Viz,
             queue_size=1)
+        # self.subgoal_pub = rospy.Publisher(
+        #     "/toponav/subgoal_image",
+        #     Image,
+        #     queue_size=1,
+        #     latch=True
+        # )
+        # self._last_subgoal_idx = None
+
         self.localization_diagnostics_pub = rospy.Publisher(
             self.robot_config['localization_diagnostics_topic'],
             LocalizationDiagnostics,
@@ -436,6 +444,17 @@ class PlaceNavNode:
                     diagnostics_msg.bayesian_belief_entropy = diagnostics["bayesian_belief_entropy"]
                     self.localization_diagnostics_pub.publish(diagnostics_msg)
                 self.viz_pub.publish(viz_msg)
+
+                # # subgoal image publishing
+                # if subgoal_idx != self._last_subgoal_idx:
+                #     img_path = self.topomap_img_dir / self.topomap_filenames[subgoal_idx]
+                #     img = read_image(img_path)
+
+                #     img_msg = bridge.cv2_to_imgmsg(img, encoding="rgb8")
+                #     img_msg.header.stamp = current_obs_timestamp
+                #     self.subgoal_pub.publish(img_msg)
+
+                #     self._last_subgoal_idx = subgoal_idx
 
                 self.goal_pub.publish(reached_goal)
                 if reached_goal:

@@ -57,6 +57,42 @@ roslaunch rwrc26_bringup navigation.launch \
   reference_mode:=latest path_timeout:=1.0 shrink_horizon_backup:=false
 ```
 
+## 開発PCでbagを再生する
+
+深度推定は既存の別コンテナを使用する。ROSコンテナにUniK3Dや別のPython環境を追加しない。
+初回はホスト側で `UniDepth` と同じ階層に `UniK3D` を配置し、
+[UniK3Dの起動手順](../../../UniDepth/docs/UNIK3D_ROS1_RUNTIME.md)に従ってビルド・起動する。
+
+```bash
+cd ~/rwrc26_ws/src
+# UniK3D がまだない場合のみ実行する。
+git clone https://github.com/lpiccinelli-eth/UniK3D.git
+
+cd UniDepth
+docker compose -f docker/unidepth-v2/compose.yaml build
+DEPTH_SERVER=/workspace/UniDepth/runtime/unik3d_server.py \
+DEPTH_MODEL=lpiccinelli/unik3d-vits \
+docker compose -f docker/unidepth-v2/compose.yaml up -d
+docker compose -f docker/unidepth-v2/compose.yaml logs --tail=30
+```
+
+`model ready` と `listening on 127.0.0.1:5557` を確認してから、
+ROSコンテナ内で実行する。深度コンテナは `restart: unless-stopped` で継続稼働する。
+debug launch 自体はこのコンテナを起動しない。
+
+```bash
+roslaunch rwrc26_bringup navigation_debug.launch \
+  topomap_dir:=whill_short_route_adaptive_c2_tsukuba_3.5 \
+  bag:=/home/user/bagfiles/tsukuba/tsukuba_lidar.bag \
+  bag_pause:=false
+```
+
+bagからC2画像、D435点群、odom、TFを再生し、C2深度・点群、PlaceNav経路、
+コストマップ、TEB経路を再計算する。既定の画像入力は
+`/usb_cam/image_raw/compressed`。非圧縮画像のbagは `bag_camera_transport:=raw` を指定する。
+`use_sim_time` とbagの `/clock` はlaunchが設定する。
+実機向け速度出力とbag記録は無効。
+
 ## 元のbridge.launchとの対応
 
 | 引数 | 既定値 | 反映先・意味 |

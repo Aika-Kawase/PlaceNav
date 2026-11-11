@@ -66,6 +66,10 @@ PlaceNavをROS 1 Noetic環境でWHILLへ統合し、つくばチャレンジに�
 
 オドメトリは走行時のPlace Recognitionには使用せず、地図作成時のノード保存判定と軌跡記録に使用します。
 
+オドメトリ付きノード情報をJSONへ保存する新モード、距離指定、bagからの生成手順は
+[オドメトリ付きトポロジカルマップ](doc/TOPOMAP_ODOMETRY.md)を参照してください。
+既存コマンドは従来モードのまま使用できます。
+
 #### Place Recognition診断
 
 `/toponav/localization_diagnostics`を追加し、以下を記録・確認できるようにしました。
