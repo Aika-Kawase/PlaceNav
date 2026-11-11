@@ -25,7 +25,7 @@ def load_model(
     device: torch.device = torch.device("cpu"),
 ) -> nn.Module:
     """Load a model from a checkpoint file (works with models trained on multiple GPUs)"""
-    if model_params["model_type"] in ("vint", "nomad"):
+    if model_params["model_type"] in ("vint", "nomad", "omnivla_edge"):
         from placenav.waypoint_backends import load_waypoint_backend
         return load_waypoint_backend(model_path, model_params, device)
     checkpoint = torch.load(model_path, map_location=device)

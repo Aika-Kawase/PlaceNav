@@ -45,6 +45,24 @@ nomad:
   num_diffusion_iters: 10
   seed: 0
 
+# Goal-image-only mode of OmniVLA-edge (upstream modality id 6). Outputs are
+# [dx, dy, cos, sin] in units of 0.1 m (upstream metric_waypoint_spacing), x forward / y left.
+omnivla_edge:
+  image_size: [96, 96]
+  checkpoint_path: waypoint/omnivla_edge.pth
+  model_type: omnivla_edge
+  context_size: 5
+  len_traj_pred: 8
+  normalize: true
+  metric_scale: 0.1 # fixed metres per output unit, unlike robot_step
+  learn_angle: true
+  obs_encoder: efficientnet-b0
+  obs_encoding_size: 1024
+  late_fusion: false
+  mha_num_attention_heads: 4
+  mha_num_attention_layers: 4
+  mha_ff_dim_factor: 4
+
 # Place recognition models
 cosplace:
   output: "global-feats-cosplace"

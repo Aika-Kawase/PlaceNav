@@ -1,4 +1,4 @@
-"""Goal-conditioned ViNT / NoMaD adapters. No downloads during navigation."""
+"""Goal-conditioned ViNT / NoMaD / OmniVLA-edge adapters. No downloads during navigation."""
 from pathlib import Path
 import sys
 
@@ -7,6 +7,7 @@ from torch import nn
 
 VISUALNAV_REV = "dca79815b704e5aa9c6bdc3082351f9e3b2848c2"
 DIFFUSION_REV = "5ba07ac6661db573af695b419a7947ecb704690f"
+OMNIVLA_REV = "5182600cb4a9ee07684e17cdd2a6cbafc56b8a68"
 
 
 def waypoint_transform(image_size):
@@ -20,8 +21,16 @@ def waypoint_transform(image_size):
     ])
 
 
-def add_sources(weights_dir):
+def add_sources(weights_dir, kind="vint"):
     root = Path(weights_dir) / "waypoint" / "sources"
+    if kind == "omnivla_edge":
+        # Only the self-contained architecture file is needed. The upstream
+        # inference script itself (CLIP, matplotlib, utm, ...) is never imported.
+        path = root / "OmniVLA" / "inference"
+        if not (path / "model_omnivla_edge.py").is_file():
+            raise FileNotFoundError(f"Missing {path}. Run src/prepare_waypoint.py --models omnivla_edge first.")
+        sys.path.insert(0, str(path))
+        return
     for name, suffix in (("visualnav-transformer", "train"), ("diffusion_policy", "")):
         path = root / name / suffix
         if not path.is_dir():
@@ -67,9 +76,38 @@ class NoMaDAdapter(nn.Module):
         return distance, decode_actions(action)
 
 
+class OmniVLAEdgeAdapter(nn.Module):
+    """OmniVLA-edge conditioned on the goal image only (upstream modality id 6).
+
+    The unused pose / satellite-map / language inputs are masked inside the
+    network, so neutral zeros are exact stand-ins. This keeps the goal-image
+    interface shared with ViNT/NoMaD and needs neither CLIP nor GPS.
+    Actions are x-forward / y-left, [dx, dy, cos, sin], in units of 0.1 m.
+    """
+    IMAGE_ONLY = 6
+    TEXT_DIM = 512
+    LARGE_IMAGE_SIZE = 224
+
+    def __init__(self, model, config):
+        super().__init__()
+        self.model = model
+        self.context_size = config["context_size"]
+        self.horizon = config["len_traj_pred"]
+
+    def forward(self, observation, goal):
+        batch, device = observation.shape[0], observation.device
+        size = observation.shape[-1]
+        zeros = lambda *shape: torch.zeros(batch, *shape, device=device, dtype=observation.dtype)
+        modality = torch.full((batch,), self.IMAGE_ONLY, device=device, dtype=torch.long)
+        action, distance, _ = self.model(
+            observation, zeros(4), zeros(9, size, size), goal, modality,
+            zeros(self.TEXT_DIM), zeros(3, self.LARGE_IMAGE_SIZE, self.LARGE_IMAGE_SIZE))
+        return distance, action
+
+
 def load_waypoint_backend(path, config, device):
-    add_sources(Path(path).parent.parent)
     kind = config["model_type"]
+    add_sources(Path(path).parent.parent, kind)
     if kind == "vint":
         from vint_train.models.vint.vint import ViNT
         names = ("context_size", "len_traj_pred", "learn_angle", "obs_encoder",
@@ -91,14 +129,26 @@ def load_waypoint_backend(path, config, device):
                               down_dims=config["down_dims"],
                               cond_predict_scale=config["cond_predict_scale"]),
             DenseNetwork(config["encoding_size"]))
+    elif kind == "omnivla_edge":
+        if torch.device(device).type != "cuda":
+            # Upstream calls Tensor.get_device() to place its masks, which is -1 on CPU.
+            raise RuntimeError("OmniVLA-edge needs --device cuda (upstream model code is CUDA-only)")
+        from model_omnivla_edge import OmniVLA_edge
+        names = ("context_size", "len_traj_pred", "learn_angle", "obs_encoder",
+                 "obs_encoding_size", "late_fusion", "mha_num_attention_heads",
+                 "mha_num_attention_layers", "mha_ff_dim_factor")
+        model = OmniVLA_edge(**{key: config[key] for key in names})
     else:
         raise ValueError(f"Unsupported waypoint model: {kind}")
     # Only load trusted official checkpoints: legacy ViNT serializes an nn.Module.
-    checkpoint = torch.load(path, map_location="cpu")
-    state = checkpoint if kind == "nomad" else checkpoint["model"]
+    # OmniVLA-edge ships a plain state dict, so it never needs unpickling.
+    checkpoint = torch.load(path, map_location="cpu", weights_only=(kind == "omnivla_edge"))
+    state = checkpoint if kind in ("nomad", "omnivla_edge") else checkpoint["model"]
     if isinstance(state, nn.Module):
         state = getattr(state, "module", state).state_dict()
     model.load_state_dict(state, strict=True)
     if kind == "nomad":
         model = NoMaDAdapter(model, config)
+    elif kind == "omnivla_edge":
+        model = OmniVLAEdgeAdapter(model, config)
     return model.to(device).eval()

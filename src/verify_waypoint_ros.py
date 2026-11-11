@@ -18,7 +18,7 @@ import xmlrpc.client
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--wp-model", choices=["gnm_large", "vint", "nomad"], required=True)
+    parser.add_argument("--wp-model", choices=["gnm_large", "vint", "nomad", "omnivla_edge"], required=True)
     parser.add_argument("--pr-model", choices=["cosplace", "megaloc", "salad", "anyloc"], default="cosplace")
     parser.add_argument("--images", type=Path, required=True)
     parser.add_argument("--port", type=int, default=11329)
@@ -85,7 +85,7 @@ def main():
                     msg.header.stamp = rospy.Time.now()
                     publisher.publish(msg)
                     time.sleep(0.2)
-                count = 8 if args.wp_model == "nomad" else 5
+                count = 8 if args.wp_model in ("nomad", "omnivla_edge") else 5
                 assert paths and viz, "No path received within timeout"
                 assert len(viz[-1].waypoints) == count
                 assert len(paths[-1].poses) == count + 1

@@ -360,7 +360,7 @@ docker compose -f .devcontainer/docker-compose.yml exec ros-noetic-docker-ws bas
 
 Alternatively, start directly in the background with `-d` and then use the same `ps` and `exec` commands.
 
-## Selectable waypoint models: GNM / ViNT / NoMaD
+## Selectable waypoint models: GNM / ViNT / NoMaD / OmniVLA-edge
 
 Branch `feature/waypoint-model-backends` extends `feature/vpr-model-backends`.
 `--pr-model` still selects localization; independently, `--wp-model` selects the
@@ -403,6 +403,7 @@ VPR backend (`cosplace`, `salad`, `anyloc`). Start TEB separately as before, usi
 | GNM | 85×64 | 5 + 1 | 5, XY + heading |
 | ViNT | 85×64 | 5 + 1 | 5, XY + heading |
 | NoMaD | 96×96 | 3 + 1 | 8, XY |
+| OmniVLA-edge | 96×96 | 5 + 1 | 8, XY + heading (CUDA only; see [docs/omnivla-edge.md](docs/omnivla-edge.md)) |
 
 ViNT/NoMaD use the upstream PIL resize without center cropping. CosPlace remains
 85×64 and the other VPR transforms remain unchanged when the predictor changes;

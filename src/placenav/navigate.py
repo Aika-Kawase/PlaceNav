@@ -53,7 +53,7 @@ class PlaceNavNode:
             raise ValueError("--target-waypoint-idx is outside the model's predicted trajectory")
         self._nomad_seed = args.nomad_seed
         self._image_transform = get_image_transform(args.img_size)
-        if args.wp_model in ("vint", "nomad"):
+        if args.wp_model in ("vint", "nomad", "omnivla_edge"):
             from placenav.waypoint_backends import waypoint_transform
             self._image_transform = waypoint_transform(args.img_size)
         self._vpr_transform = self._image_transform
@@ -215,8 +215,13 @@ class PlaceNavNode:
         model_config = model_configs[model]
         model_config["img_size"] = img_size
         model_config["seed"] = self._nomad_seed
-        self.waypoint_scale = (self.robot_config["max_v"] / self.robot_config["frame_rate"]
-                               if model_config.get("metric_scale") == "robot_step" else 1.0)
+        metric_scale = model_config.get("metric_scale")
+        if metric_scale == "robot_step":
+            self.waypoint_scale = self.robot_config["max_v"] / self.robot_config["frame_rate"]
+        elif isinstance(metric_scale, (int, float)):
+            self.waypoint_scale = float(metric_scale)  # fixed metres per output unit
+        else:
+            self.waypoint_scale = 1.0
         rospy.loginfo("Waypoint backend=%s, image=%s, points=%d, XY scale=%g",
                       model, img_size, model_config["len_traj_pred"], self.waypoint_scale)
 
@@ -395,7 +400,7 @@ class PlaceNavNode:
                     rospy.logerr_throttle(2.0, "Non-finite waypoint prediction; not publishing path")
                     rate.sleep()
                     continue
-                # Official ViNT/NoMaD actions are normalized displacements, not
+                # Official ViNT/NoMaD/OmniVLA-edge actions are normalized displacements, not
                 # meters. Preserve legacy GNM behavior; scale only configured models.
                 waypoints[:, :2] *= self.waypoint_scale
 

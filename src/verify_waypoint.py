@@ -14,7 +14,7 @@ from placenav.waypoint_backends import load_waypoint_backend, waypoint_transform
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--models", nargs="+", choices=["vint", "nomad"], default=["vint", "nomad"])
+    parser.add_argument("--models", nargs="+", choices=["vint", "nomad", "omnivla_edge"], default=["vint", "nomad"])
     parser.add_argument("--device", default="cuda", choices=["cpu", "cuda"])
     parser.add_argument("--weights-dir", type=Path, default=Path(__file__).parent / "model_weights")
     parser.add_argument("--image", type=Path, help="optional actual camera image; otherwise synthetic input")

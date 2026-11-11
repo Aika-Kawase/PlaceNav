@@ -35,8 +35,8 @@ def parse_args():
         "--wp-model",
         default="gnm_large",
         type=str,
-        choices=["gnm_large", "vint", "nomad"],
-        help="waypoint model (default: gnm_large); prepare ViNT/NoMaD weights first",
+        choices=["gnm_large", "vint", "nomad", "omnivla_edge"],
+        help="waypoint model (default: gnm_large); prepare ViNT/NoMaD/OmniVLA-edge weights first",
     )
     parser.add_argument(
         "--pr-model",

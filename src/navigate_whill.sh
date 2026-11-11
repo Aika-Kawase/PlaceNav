@@ -23,7 +23,7 @@ usage()
     printf '%s\n' \
       'Usage: ./navigate_whill.sh --topomap-dir ROUTE [PlaceNav options]' \
       '  --pr-model cosplace|megaloc|salad|anyloc (default: cosplace)' \
-      '  --wp-model gnm_large|vint|nomad (default: gnm_large)' \
+      '  --wp-model gnm_large|vint|nomad|omnivla_edge (default: gnm_large)' \
       '' \
       'Starts inference and the GUI visualization. Use --no-visualization to suppress the GUI.' \
       'Starts the GNM Path adapter. Use --no-path-adapter to suppress it.' \
@@ -107,7 +107,7 @@ PATH_ADAPTER_PID=""
 
 if [[ "${START_PATH_ADAPTER}" -eq 1 ]]; then
     EXPECTED_WAYPOINTS=5
-    [[ "${WP_MODEL}" != "nomad" ]] || EXPECTED_WAYPOINTS=8
+    [[ "${WP_MODEL}" != "nomad" && "${WP_MODEL}" != "omnivla_edge" ]] || EXPECTED_WAYPOINTS=8
     "${SCRIPT_DIR}/run_gnm_path_adapter_whill.sh" --expected-waypoints "${EXPECTED_WAYPOINTS}" \
         --source-frame "${PATH_SOURCE_FRAME}" --target-frame "${PATH_TARGET_FRAME}" &
     PATH_ADAPTER_PID=$!
