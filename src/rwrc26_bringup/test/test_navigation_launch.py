@@ -41,11 +41,14 @@ class NavigationLaunchTest(unittest.TestCase):
         if os.environ.get('LAUNCH_OPTIONS_OUTPUT'):
             Path(os.environ['LAUNCH_OPTIONS_OUTPUT']).write_text(json.dumps(snapshots, indent=2)+'\n')
 
-    def test_default_controls_match_original_bridge_launch(self):
+    def test_default_navigation_controls(self):
         _, params = self.load()
         bridge = ET.parse(ROOT.parent/'placenav_teb_bridge/launch/bridge.launch').getroot()
         defaults = {arg.attrib['name']: arg.attrib.get('default') for arg in bridge.findall('arg')}
-        self.assertEqual(params['/placenav_teb_bridge/reference_mode'], defaults['reference_mode'])
+        # Navigation intentionally uses latest; standalone bridge uses state_machine.
+        self.assertEqual(params['/placenav_teb_bridge/reference_mode'], 'latest')
+        self.assertEqual(params['/placenav_runner/motion_model'], 'odometry')
+        self.assertEqual(params['/placenav_runner/topomap_dir'], 'whill_odometry_tsukuba_3.5')
         self.assertEqual(params['/placenav_teb_bridge/path_timeout'], float(defaults['path_timeout']))
         self.assertEqual(params['/placenav_teb_bridge/TebLocalPlannerROS/shrink_horizon_backup'],
                          defaults['shrink_horizon_backup'] == 'true')
@@ -89,6 +92,25 @@ class NavigationLaunchTest(unittest.TestCase):
     def test_explicit_drive_switch(self):
         _, params = self.load('drive_robot:=true', 'robot_cmd_vel_topic:=/test/drive')
         self.assertEqual(params['/placenav_teb_bridge/cmd_vel_topic'], '/test/drive')
+
+    def test_odometry_options_reach_runner_and_debug_bag_input(self):
+        _, params = self.load('odom_topic:=/vo/odom',
+                              'odom_max_gap:=0.15', 'odom_noise:=0.2')
+        for key, value in dict(motion_model='odometry', odom_topic='/vo/odom',
+                               odom_max_gap=.15, odom_noise=.2).items():
+            self.assertEqual(params['/placenav_runner/'+key], value)
+        debug = ROOT/'launch/navigation_debug.launch'
+        config = load_config_default([(str(debug), ['bag:=/tmp/example.bag',
+            'odom_topic:=/vo/odom', 'rviz:=false'])], 11311, verbose=False)
+        self.assertIs(config.params['/use_sim_time'].value, True)
+        self.assertEqual(config.params['/placenav_runner/motion_model'].value, 'odometry')
+        import shlex
+        player = next(n for n in config.nodes if n.name == 'navigation_bag_playback')
+        topics = shlex.split(player.args)[shlex.split(player.args).index('--topics')+1:]
+        self.assertIn('/vo/odom', topics)
+        self.assertNotIn('/odom', topics)
+        _, legacy = self.load('motion_model:=legacy')
+        self.assertEqual(legacy['/placenav_runner/motion_model'], 'legacy')
 
 
 if __name__ == '__main__':

@@ -64,11 +64,14 @@ PlaceNavをROS 1 Noetic環境でWHILLへ統合し、つくばチャレンジに�
 - 旋回判定：yaw変化 0.12 rad
 - 最小保存距離：0.10 m
 
-オドメトリは走行時のPlace Recognitionには使用せず、地図作成時のノード保存判定と軌跡記録に使用します。
+地図生成はオドメトリ付きJSONを保存するモードが既定です。
+ナビゲーションも `place_recognition + bayesian + odometry` が既定で、
+ライブodomを自己位置推定の移動更新に使用します。
 
 オドメトリ付きノード情報をJSONへ保存する新モード、距離指定、bagからの生成手順は
 [オドメトリ付きトポロジカルマップ](doc/TOPOMAP_ODOMETRY.md)を参照してください。
-既存コマンドは従来モードのまま使用できます。
+従来形式の生成は `--map-mode legacy`、従来のナビゲーションは `--motion-model legacy`
+（launchでは `motion_model:=legacy`）を明示して使用できます。
 
 #### Place Recognition診断
 
@@ -251,6 +254,10 @@ _Make sure to run this script inside the `./src/` directory._
 
 You can run the model by specifying desired parameters to the `./src/navigate_turtlebot.sh` script.
 Options are:
+
+For the original image-only maps below, add `--motion-model legacy`.
+The odometry default requires `node_odometry.json`; sliding-window or temporal-distance navigation also requires the explicit legacy selection.
+
 ```bash
 ./navigate_turtlebot.sh “--wp-model <gnm_large> --pr-model <cosplace> --subgoal-mode <temporal_distance | place_recognition> --filter-mode <sliding_window | bayesian> --topomap-dir <your_test_dir>”
 ```
@@ -395,7 +402,7 @@ cd /home/user/ws/src/PlaceNav/src
   --wp-model vint \
   --pr-model megaloc \
   --subgoal-mode place_recognition \
-  --filter-mode bayesian
+  --filter-mode bayesian --motion-model legacy
 ```
 
 Replace `vint` with `nomad` or `gnm_large`. Replace `megaloc` with any prepared

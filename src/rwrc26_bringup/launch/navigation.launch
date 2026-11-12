@@ -6,11 +6,14 @@
   <arg name="max_input_width" default="640"/>
   <arg name="cloud_stride" default="4"/>
   <arg name="placenav_src" default="/home/user/ws/src/PlaceNav/src"/>
-  <arg name="topomap_dir" default="whill_short_route_adaptive_c2_tsukuba_2.0"/>
+  <arg name="topomap_dir" default="whill_odometry_tsukuba_3.5"/>
   <arg name="wp_model" default="nomad"/>
   <arg name="pr_model" default="salad"/>
   <arg name="subgoal_mode" default="place_recognition"/>
   <arg name="filter_mode" default="bayesian"/>
+  <arg name="motion_model" default="odometry"/>
+  <arg name="odom_max_gap" default="0.2"/>
+  <arg name="odom_noise" default="0.1"/>
   <arg name="window_radius" default="3"/>
   <arg name="start_node_idx" default="0"/>
   <arg name="goal_node_idx" default="-1"/>
@@ -113,6 +116,10 @@
     <param name="pr_model" value="$(arg pr_model)"/>
     <param name="subgoal_mode" value="$(arg subgoal_mode)"/>
     <param name="filter_mode" value="$(arg filter_mode)"/>
+    <param name="motion_model" value="$(arg motion_model)"/>
+    <param name="odom_topic" value="$(arg odom_topic)"/>
+    <param name="odom_max_gap" value="$(arg odom_max_gap)" type="double"/>
+    <param name="odom_noise" value="$(arg odom_noise)" type="double"/>
     <param name="window_radius" value="$(arg window_radius)"/>
     <param name="start_node_idx" value="$(arg start_node_idx)"/>
     <param name="goal_node_idx" value="$(arg goal_node_idx)"/>

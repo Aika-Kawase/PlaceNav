@@ -10,9 +10,10 @@ usage()
     printf '%s\n' \
       'Usage: ./create_topomap_whill.sh ROUTE_NAME [SAMPLE_PERIOD_SECONDS] [options]' \
       '' \
-      'Default: legacy map, adaptive sampling, /odom input, 3.0 m straight spacing.' \
+      'Default: odometry map, adaptive sampling, /odom input, 3.0 m straight spacing.' \
       'The optional second positional argument is seconds, not meters.' \
-      'Example: ./create_topomap_whill.sh route --map-mode odometry --straight-distance 2.0' \
+      'Example: ./create_topomap_whill.sh route --straight-distance 2.0' \
+      'Use --map-mode legacy for the original output format.' \
       'Options: --odom-topic TOPIC, --sampling-mode time|adaptive, --idle-timeout SECONDS' \
       '         --max-node-distance METERS (odometry/adaptive default: 2*straight-distance)' \
       'Run while images and odometry are published. Ctrl+C finishes the map.'

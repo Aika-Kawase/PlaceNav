@@ -1,7 +1,11 @@
 <launch>
-  <arg name="topomap_dir" default="whill_short_route_adaptive_c2_tsukuba_2.0"/>
+  <arg name="topomap_dir" default="whill_odometry_tsukuba_3.5"/>
   <arg name="wp_model" default="nomad"/>
   <arg name="pr_model" default="salad"/>
+  <arg name="motion_model" default="odometry"/>
+  <arg name="odom_topic" default="/odom"/>
+  <arg name="odom_max_gap" default="0.2"/>
+  <arg name="odom_noise" default="0.1"/>
   <arg name="server_host" default="127.0.0.1"/>
   <arg name="server_port" default="5557"/>
   <arg name="rviz" default="true"/>
@@ -19,6 +23,10 @@
     <arg name="topomap_dir" value="$(arg topomap_dir)"/>
     <arg name="wp_model" value="$(arg wp_model)"/>
     <arg name="pr_model" value="$(arg pr_model)"/>
+    <arg name="motion_model" value="$(arg motion_model)"/>
+    <arg name="odom_topic" value="$(arg odom_topic)"/>
+    <arg name="odom_max_gap" value="$(arg odom_max_gap)"/>
+    <arg name="odom_noise" value="$(arg odom_noise)"/>
     <arg name="server_host" value="$(arg server_host)"/>
     <arg name="server_port" value="$(arg server_port)"/>
     <arg name="rviz" value="$(arg rviz)"/>
@@ -41,6 +49,6 @@
           args="compressed in:=/usb_cam/image_raw raw out:=/usb_cam/image_raw"/>
     <!-- Replay sensor data and TF. Recompute the C2 cloud, paths and costmap. -->
     <node pkg="rosbag" type="play" name="navigation_bag_playback" output="screen"
-          args="--clock --quiet --delay=3 --rate=$(arg bag_rate) $(arg pause_flag) '$(arg bag)' --topics /tf /tf_static /odom /realsense/depth/color/points /usb_cam/camera_info $(arg camera_topic)"/>
+          args="--clock --quiet --delay=3 --rate=$(arg bag_rate) $(arg pause_flag) '$(arg bag)' --topics /tf /tf_static $(arg odom_topic) /realsense/depth/color/points /usb_cam/camera_info $(arg camera_topic)"/>
   </group>
 </launch>

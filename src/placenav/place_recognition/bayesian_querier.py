@@ -3,6 +3,7 @@ import torch
 from typing import Tuple
 
 from .gallery_db import PlaceRecognitionDBHandler
+from .odometry_motion import OdometryMotionModel
 
 
 class PlaceRecognitionTopologicalFilter:
@@ -11,6 +12,7 @@ class PlaceRecognitionTopologicalFilter:
     '''
     def __init__(
         self, extractor, gallery_db_path, gallery_img_dir, delta=5, window_lower=-2, window_upper=10,
+        motion_model='legacy', odom_noise=0.1,
     ):        
         self.extractor = extractor
 
@@ -29,6 +31,14 @@ class PlaceRecognitionTopologicalFilter:
         self.window_upper = window_upper
         self.window_size = int((window_upper - window_lower) / 2)
         self.transition = np.ones(window_upper - window_lower)
+        if motion_model not in ('legacy', 'odometry'):
+            raise ValueError('Unknown motion model: ' + motion_model)
+        self.motion = None
+        if motion_model == 'odometry':
+            from pathlib import Path
+            self.motion = OdometryMotionModel(
+                Path(gallery_img_dir) / 'node_odometry.json',
+                self.db_handler.get_filepaths(), noise=odom_noise)
 
     def initialize_model(self, img):
         '''
@@ -51,6 +61,9 @@ class PlaceRecognitionTopologicalFilter:
         # Init for belief distribution
         self.belief = np.exp(-self.lambda1 * (dists - dists.min()))
         self.belief /= self.belief.sum()
+        if self.motion is not None:
+            self.motion.initialize(self.belief)
+        self.last_diagnostics = None
 
     def obs_lhood(self, descriptor: np.ndarray) -> np.ndarray:
         '''Observation likelihood of the query descriptor'''
@@ -60,7 +73,11 @@ class PlaceRecognitionTopologicalFilter:
         vsim = np.exp(np.maximum(-self.lambda1 * (dists - dists.min()), -80.0))
         return vsim
 
-    def match(self, img: torch.Tensor) -> Tuple[int, float]:
+    def reset_odometry(self):
+        if self.motion is not None:
+            self.motion.reset_odometry()
+
+    def match(self, img: torch.Tensor, odometry=None) -> Tuple[int, float]:
         '''
         Match the query image to the topological map.
 
@@ -75,7 +92,35 @@ class PlaceRecognitionTopologicalFilter:
         - proposal: the index of the subgoal
         - score: the probability of the subgoal
         '''
+        if self.motion is not None:
+            if odometry is None:
+                raise ValueError('Odometry motion requires an image-time odometry sample')
+            previous = self.motion.last_odometry
+            if (previous is not None and previous.stamp_ns == odometry.stamp_ns and
+                    (previous.frame_id, previous.child_frame_id) ==
+                    (odometry.frame_id, odometry.child_frame_id) and
+                    self.last_diagnostics is not None):
+                proposal = int(np.argmax(self.belief))
+                return proposal, float(self.belief[proposal])
         query_desc = self.extractor(img)['global_descriptor'].numpy().squeeze()
+
+        if self.motion is None:
+            self._predict_legacy()
+        else:
+            self.motion.predict(odometry)
+
+        # The VPR likelihood and node-wise Bayesian measurement update are shared.
+        cosine_scores = np.dot(self.descriptors, query_desc)
+        obs_lhood = self.obs_lhood(query_desc)
+        if self.motion is None:
+            self.belief *= obs_lhood
+            self.belief /= self.belief.sum()
+        else:
+            self.belief = self.motion.observe(obs_lhood)
+
+        return self._result(cosine_scores)
+
+    def _predict_legacy(self):
 
         # Calculate the indices of the valid data within the convolution output
         # for the implementation of the prediction step / transition model
@@ -104,12 +149,7 @@ class PlaceRecognitionTopologicalFilter:
         if w_l > 0:
             self.belief[:w_l] = 0.0
 
-        # observation likelihood update
-        cosine_scores = np.dot(self.descriptors, query_desc)
-        obs_lhood = self.obs_lhood(query_desc)
-        self.belief *= obs_lhood
-        self.belief /= self.belief.sum()
-
+    def _result(self, cosine_scores):
         # Argmax of the belief
         max_bel = np.argmax(self.belief)
         score = self.belief[max_bel]

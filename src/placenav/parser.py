@@ -4,7 +4,22 @@ Argument parser for the placenav node
 '''
 
 import argparse
+import math
 from pathlib import Path
+
+
+def positive_float(value):
+    number = float(value)
+    if not math.isfinite(number) or number <= 0:
+        raise argparse.ArgumentTypeError('must be finite and positive')
+    return number
+
+
+def nonnegative_float(value):
+    number = float(value)
+    if not math.isfinite(number) or number < 0:
+        raise argparse.ArgumentTypeError('must be finite and nonnegative')
+    return number
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -89,10 +104,9 @@ def parse_args():
     )
     parser.add_argument(
         "--filter-mode",
-        default="sliding_window",
+        default="bayesian",
         type=str,
-        help="""Filter mode for choosing the subgoal (sliding_window: GNM default or
-         topological_filter: from https://arxiv.org/pdf/2105.03091.pdf) (default: sliding_window)""",
+        help="Filter mode for choosing the subgoal: bayesian (default) or sliding_window",
     )
     parser.add_argument(
         "--subgoal-mode",
@@ -121,6 +135,13 @@ def parse_args():
     )
 
     # Bayesian filter params
+    parser.add_argument('--motion-model', choices=['legacy', 'odometry'], default='odometry',
+                        help='Bayesian prediction: fixed node window or live odometry')
+    parser.add_argument('--odom-topic', help='nav_msgs/Odometry input; default: robot config')
+    parser.add_argument('--odom-max-gap', type=positive_float, default=0.2,
+                        help='Maximum bracketing odometry interval in seconds')
+    parser.add_argument('--odom-noise', type=nonnegative_float, default=0.1,
+                        help='Along-route motion standard deviation / measured translation')
     parser.add_argument(
         "--transition-model-window-lower",
         default=-1,
@@ -168,4 +189,8 @@ def parse_args():
 
 
     args, _ = parser.parse_known_args()
+    if args.motion_model == 'odometry' and (
+            args.filter_mode != 'bayesian' or args.subgoal_mode != 'place_recognition'):
+        parser.error('--motion-model odometry requires --filter-mode bayesian '
+                     '--subgoal-mode place_recognition')
     return args

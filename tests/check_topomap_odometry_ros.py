@@ -108,8 +108,7 @@ def main():
             return len(json.loads(path.read_text())["nodes"]) if path.exists() else 0
 
         # Check skipped observations, image-time interpolation, turns and node deltas.
-        process, folder, command = start("odometry", [
-            "--map-mode", "odometry", "--straight-distance", "2.0"])
+        process, folder, command = start("odometry", ["--straight-distance", "2.0"])
         samples = [(0, 0, 0), (.5, 0, 0), (2, 0, 0),
                    (2.2, 0, math.pi/2), (2.2, 2.1, math.pi/2)]
         expected_counts = [1, 1, 2, 3, 4]
@@ -142,8 +141,8 @@ def main():
         assert original == {p.name: p.read_bytes() for p in folder.iterdir()}
         print("PASS image-time pose, skipped-node deltas, turns, live JSON, existing-map protection", flush=True)
 
-        # The original two-positional-argument command still uses /odom and legacy output.
-        process, folder, _ = start("legacy", ["--sampling-mode", "time"], positional=True)
+        # The positional CLI still accepts an explicit legacy output selection.
+        process, folder, _ = start("legacy", ["--map-mode", "legacy", "--sampling-mode", "time"], positional=True)
         for i in range(3):
             odom(wheel, 200+i, (2*i, 0, 0))
             time.sleep(.03)

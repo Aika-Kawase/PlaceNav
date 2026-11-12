@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 import ast
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -52,6 +53,16 @@ def navigation_command(params):
     for name, default in integers.items():
         command += ['--'+name.replace('_', '-'), str(int(params.get(name, default)))]
     command += ['--device', str(params.get('device', 'cuda'))]
+    motion = str(params.get('motion_model', 'odometry'))
+    if motion not in ('legacy', 'odometry'):
+        raise ValueError('motion_model must be legacy or odometry')
+    gap = float(params.get('odom_max_gap', 0.2))
+    noise = float(params.get('odom_noise', 0.1))
+    if not math.isfinite(gap) or gap <= 0 or not math.isfinite(noise) or noise < 0:
+        raise ValueError('odom_max_gap must be positive and odom_noise nonnegative')
+    command += ['--motion-model', motion,
+                '--odom-topic', str(params.get('odom_topic', '/odom')),
+                '--odom-max-gap', str(gap), '--odom-noise', str(noise)]
     size = params.get('img_size', [])
     if not isinstance(size, list) or (size and (len(size) != 2 or any(
             type(value) is not int or value <= 0 for value in size))):

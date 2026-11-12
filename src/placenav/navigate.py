@@ -12,6 +12,7 @@ from threading import Lock
 # ROS
 import rospy
 from sensor_msgs.msg import Image
+from nav_msgs.msg import Odometry
 from std_msgs.msg import Bool, Float32MultiArray, Time
 
 # Place recognition
@@ -20,9 +21,12 @@ from place_recognition.sliding_window_querier import PlaceRecognitionSlidingWind
 from place_recognition.feature_extractor import FeatureExtractor
 from place_recognition import extract_database
 from place_recognition.vpr_config import image_transform, database_signature
+from place_recognition.odometry_motion import OdometryHistory
+from placenav.topomap_odometry import OdomSample
 
 import parser
-from utils import to_numpy, load_model, read_image, get_image_transform, waypoints_to_ros_msg, bridge
+from utils import (to_numpy, load_model, read_image, get_image_transform,
+                   waypoints_to_ros_msg, bridge, odometry_msg_to_numpy)
 
 # Visualization
 from placenav_viz_msgs.msg import Viz, LocalizationDiagnostics
@@ -35,6 +39,12 @@ class PlaceNavNode:
             self,
             args: argparse.Namespace,
         ):
+        self.motion_model = args.motion_model
+        if self.motion_model == 'odometry' and not (
+                args.topomap_base_dir / args.topomap_dir / 'node_odometry.json').is_file():
+            raise FileNotFoundError('Odometry motion requires node_odometry.json; '
+                                    'use an odometry map or --motion-model legacy')
+        self.odom_max_gap = args.odom_max_gap
         # Set device to cuda if requested and available
         if args.device == "cuda" and torch.cuda.is_available():
             rospy.loginfo("Using CUDA")
@@ -65,6 +75,7 @@ class PlaceNavNode:
         with args.robot_config_path.open(mode="r", encoding="utf-8") as f:
             robot_configs = yaml.safe_load(f)
         self.robot_config = robot_configs[args.robot]
+        self.odometry_topic = args.odom_topic or self.robot_config['odom_topic']
 
         # Initialize place recognition
         if args.subgoal_mode == 'place_recognition':
@@ -77,6 +88,8 @@ class PlaceNavNode:
                 transition_model_window_upper=args.transition_model_window_upper,
                 bayesian_filter_delta=args.filter_delta,
                 recompute_db=args.recompute_place_recognition_db,
+                motion_model=self.motion_model,
+                odom_noise=args.odom_noise,
                 )
             
         # Initialize the waypoint (and temporal distance) model
@@ -133,6 +146,8 @@ class PlaceNavNode:
             transition_model_window_upper: int,
             bayesian_filter_delta: int,
             recompute_db: bool = False,
+            motion_model: str = 'odometry',
+            odom_noise: float = 0.1,
         ):
         # Load the place recognition model config
         with model_config_path.open(mode="r", encoding="utf-8") as f:
@@ -192,6 +207,8 @@ class PlaceNavNode:
                 delta=bayesian_filter_delta,
                 window_lower=transition_model_window_lower,
                 window_upper=transition_model_window_upper,
+                motion_model=motion_model,
+                odom_noise=odom_noise,
                 )
             
         elif filter_mode == 'sliding_window':
@@ -238,6 +255,15 @@ class PlaceNavNode:
 
     def _setup_ros(self):
         self.obs_lock = Lock()
+        self.odom_lock = Lock()
+        # max_v is a command limit; a manually recorded bag may move faster.
+        self.odom_history = OdometryHistory(
+            self.odom_max_gap, max_speed=max(3., 3 * self.robot_config['max_v']))
+        self._last_localization_stamp = None
+        self._last_odom_epoch = None
+        if self.motion_model == 'odometry':
+            self.odom_sub = rospy.Subscriber(
+                self.odometry_topic, Odometry, self.odom_callback, queue_size=100)
 
         obs_sub = rospy.Subscriber(
             self.robot_config['camera_topic'],
@@ -265,6 +291,7 @@ class PlaceNavNode:
             self.robot_config['toponav_viz_info_topic'],
             Viz,
             queue_size=1)
+        # # publish subgoal images
         # self.subgoal_pub = rospy.Publisher(
         #     "/toponav/subgoal_image",
         #     Image,
@@ -279,18 +306,51 @@ class PlaceNavNode:
             queue_size=1)
 
         rospy.init_node("PlaceNavNode", anonymous=False)
+        rospy.loginfo('Localization motion model=%s, odometry=%s',
+                      self.motion_model, self.odometry_topic)
 
         
     def obs_callback(self, msg: Image):
         img = bridge.imgmsg_to_cv2(msg, desired_encoding="rgb8")
         vpr_img = self._vpr_transform(img).unsqueeze(0)
         with self.obs_lock:
+            if (self.motion_model == 'odometry' and self.context_queue and
+                    msg.header.stamp < self.context_queue[-1]['timestamp']):
+                self.context_queue.clear()
             img = self._image_transform(img).unsqueeze(0)
             if len(self.context_queue) < self.context_size + 1:
                 self.context_queue.append( {'timestamp': msg.header.stamp, 'img': img, 'vpr_img': vpr_img})
             else:            
                 self.context_queue.pop(0)
                 self.context_queue.append({'timestamp': msg.header.stamp, 'img': img, 'vpr_img': vpr_img})
+
+    def odom_callback(self, msg: Odometry):
+        q = msg.pose.pose.orientation
+        expected = self.place_recognition_querier.motion.child_frame_id
+        if (msg.child_frame_id != expected or
+                not np.isfinite([q.x, q.y, q.z, q.w]).all() or
+                q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w < 1e-12):
+            rospy.logwarn_throttle(5, 'Ignoring invalid odometry or unexpected body frame')
+            return
+        pose = tuple(float(v) for v in odometry_msg_to_numpy(msg))
+        sample = OdomSample(msg.header.stamp.to_nsec(), pose,
+                            msg.header.frame_id, msg.child_frame_id)
+        try:
+            with self.odom_lock:
+                reason = self.odom_history.add(sample)
+            if reason:
+                rospy.logwarn('Odometry continuity reset: %s', reason)
+        except ValueError as error:
+            rospy.logwarn_throttle(5, str(error))
+
+    def _image_odometry(self, stamp_ns):
+        with self.odom_lock:
+            sample = self.odom_history.at(stamp_ns)
+            epoch = self.odom_history.epoch
+        if sample is not None and epoch != self._last_odom_epoch:
+            self.place_recognition_querier.reset_odometry()
+            self._last_odom_epoch = epoch
+        return sample
 
     def stop_callback(self, msg: Bool):
         if msg.data:
@@ -323,6 +383,22 @@ class PlaceNavNode:
 
                 current_obs = context[-1]['vpr_img'].to(self.device)
                 current_obs_timestamp = context[-1]['timestamp']
+                odometry = None
+                if self.motion_model == 'odometry':
+                    stamp_ns = current_obs_timestamp.to_nsec()
+                    if stamp_ns == self._last_localization_stamp:
+                        rate.sleep()
+                        continue
+                    if (self._last_localization_stamp is not None and
+                            stamp_ns < self._last_localization_stamp):
+                        self.place_recognition_querier.reset_odometry()
+                        self._last_odom_epoch = None
+                    odometry = self._image_odometry(stamp_ns)
+                    if odometry is None:
+                        rospy.logwarn_throttle(5, 'Waiting for image-time odometry on %s',
+                                               self.odometry_topic)
+                        rate.sleep()
+                        continue
                 # Cat the context images along the channel dimension
                 context = torch.cat([obs['img'] for obs in context], dim=1).to(self.device)
 
@@ -340,7 +416,12 @@ class PlaceNavNode:
                     
                     # Place recognition with Bayesian filter
                     if args.filter_mode == 'bayesian':
-                        closest_node_idx, score = self.place_recognition_querier.match(current_obs)
+                        if self.motion_model == 'odometry':
+                            closest_node_idx, score = self.place_recognition_querier.match(
+                                current_obs, odometry)
+                            self._last_localization_stamp = current_obs_timestamp.to_nsec()
+                        else:
+                            closest_node_idx, score = self.place_recognition_querier.match(current_obs)
 
                     # Place recognition with sliding window filter
                     elif args.filter_mode == 'sliding_window':

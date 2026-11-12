@@ -43,6 +43,7 @@ PY
         self.assertIn('--no-visualization', captured['args'])
         self.assertEqual(captured['args'][captured['args'].index('--wp-model')+1], 'nomad')
         self.assertEqual(captured['args'][captured['args'].index('--pr-model')+1], 'salad')
+        self.assertEqual(captured['args'][captured['args'].index('--motion-model')+1], 'odometry')
         self.assertFalse((directory/'unexpected_file').exists())
         self.assertFalse(any(a.startswith('__') for a in captured['args']))
 
@@ -74,6 +75,7 @@ PY
                       close_threshold=5, target_waypoint_idx=6, device='cpu',
                       transition_model_window_lower=-2, transition_model_window_upper=4,
                       filter_delta=12, recompute_place_recognition_db=True, img_size=[96, 96],
+                      motion_model='odometry', odom_topic='/vo/odom', odom_max_gap=.15, odom_noise=.2,
                       global_frame='test_odom', robot_base_frame='test_base', diagnostics=True)
         command, _ = runner.navigation_command(params)
         self.assertNotIn('--trace-navigation', command)
@@ -87,8 +89,17 @@ PY
             args = parser.parse_args()
         for key in ('topomap_dir', 'start_node_idx', 'goal_node_idx', 'lookahead', 'nomad_seed',
                     'close_threshold', 'target_waypoint_idx', 'device', 'transition_model_window_lower',
-                    'transition_model_window_upper', 'filter_delta', 'recompute_place_recognition_db', 'img_size'):
+                    'transition_model_window_upper', 'filter_delta', 'recompute_place_recognition_db', 'img_size',
+                    'motion_model', 'odom_topic', 'odom_max_gap', 'odom_noise'):
             self.assertEqual(getattr(args, key), params[key], key)
+
+    def test_invalid_motion_options_are_rejected(self):
+        directory = self.root/'PlaceNav'; directory.mkdir(); (directory/'navigate_whill.sh').touch()
+        for options in ({'motion_model': 'typo'}, {'odom_max_gap': 0},
+                        {'odom_max_gap': float('nan')}, {'odom_noise': -1},
+                        {'odom_noise': float('inf')}):
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                runner.navigation_command(dict(placenav_src=str(directory), topomap_dir='route', **options))
 
     def test_trace_capability_and_recording_follow_selected_checkout(self):
         directory = self.root/'PlaceNav'; (directory/'placenav').mkdir(parents=True)

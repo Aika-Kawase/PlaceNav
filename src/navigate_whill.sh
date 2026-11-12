@@ -24,6 +24,7 @@ usage()
       'Usage: ./navigate_whill.sh --topomap-dir ROUTE [PlaceNav options]' \
       '  --pr-model cosplace|megaloc|salad|anyloc (default: cosplace)' \
       '  --wp-model gnm_large|vint|nomad (default: gnm_large)' \
+      '  --motion-model legacy|odometry (default: odometry; requires node_odometry.json)' \
       '' \
       'Starts inference and the GUI visualization. Use --no-visualization to suppress the GUI.' \
       'Starts the GNM Path adapter. Use --no-path-adapter to suppress it.' \

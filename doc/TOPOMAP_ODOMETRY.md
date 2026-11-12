@@ -1,16 +1,16 @@
 # オドメトリ付きトポロジカルマップ
 
 従来の画像マップと、新しいノード間相対姿勢付きマップを、同じ生成スクリプトで切り替える。
-ナビゲーション側で保存オドメトリを利用する処理は、今回の実装には含めない。
+保存した地図上の位置関係とライブodomを使う、ナビゲーション側の移動更新にも対応する。
 
 ## 生成モードと距離指定
 
 コンテナ内の `/home/user/ws/src/PlaceNav/src` で実行する。
 
 ```bash
-# 新モード。直線区間のノード間隔を2.0mにする。
+# 既定のオドメトリ付きモード。直線区間のノード間隔を2.0mにする。
 ./create_topomap_whill.sh tsukuba_odom_2.0 \
-  --map-mode odometry --straight-distance 2.0 --odom-topic /odom
+  --straight-distance 2.0 --odom-topic /odom
 ```
 
 直線距離は、最後に保存した画像の位置と現在位置の
@@ -20,8 +20,8 @@
 旋回時には従来の適応的保存を維持するため、2mより短い間隔でも保存される。
 
 ```bash
-# 従来の2引数も引き続き有効。第2引数は秒数であり、距離ではない。
-./create_topomap_whill.sh old_route 2.0
+# 第2位置引数も引き続き有効。秒数であり、距離ではない。出力は既定のodom形式。
+./create_topomap_whill.sh route_with_period 2.0
 
 # 従来形式の出力で、距離だけ2mに指定することもできる。
 ./create_topomap_whill.sh old_route_new_name --map-mode legacy --straight-distance 2.0
@@ -29,7 +29,7 @@
 
 | オプション | 既定値・意味 |
 |---|---|
-| `--map-mode` | `legacy`。新しいJSONを保存するときは `odometry` |
+| `--map-mode` | `odometry`。`legacy` で従来形式を選択 |
 | `--straight-distance` | 3.0m。直線区間の保存距離 |
 | `--sampling-mode` | シェルでは `adaptive`。`time` も指定可能 |
 | 第2位置引数／`--dt` | 3.0秒。`time` モードの時間間隔 |
@@ -128,6 +128,60 @@ VOを使用する場合も同じ車体基準の連続したオドメトリを用
 カメラ基準のVOから車体姿勢への変換やVO推定器自体の実装は対象外。
 この記録はオドメトリに対する整合性を持つもので、実際の位置精度や累積誤差の改善を保証しない。
 
+## ナビゲーションの移動更新にodomを使う
+
+```bash
+./navigate_whill.sh --topomap-dir whill_odometry_tsukuba_2.0 \
+  --wp-model nomad --pr-model salad
+```
+
+統合launch・bagデバッグからも同じモードを選択できる。
+
+```bash
+roslaunch rwrc26_bringup navigation_debug.launch \
+  topomap_dir:=whill_odometry_tsukuba_2.0 \
+  bag:=/home/user/bagfiles/tsukuba/tsukuba.bag bag_pause:=false
+```
+
+既定は `motion_model:=odometry`。CLIの既定も `place_recognition + bayesian + odometry`。
+`motion_model:=legacy`（CLIは `--motion-model legacy`）で従来の固定ノード窓による移動更新を選択する。
+`sliding_window` や `temporal_distance` を使う場合も `--motion-model legacy` を明示する。
+launchの既定地図は `whill_odometry_tsukuba_3.5`。別の地図は `topomap_dir` で指定する。
+地図画像と対応する `node_odometry.json` が必要で、不足時は起動エラーになる。
+VPRの観測尤度、`closest_node + lookahead` によるサブゴール選択、
+NoMaD/GNM・TEBの処理は変更しない。サブゴール保持・再探索モードは追加しない。
+
+| launch引数 | 直接起動の引数 | 意味 |
+|---|---|---|
+| `motion_model:=odometry` | `--motion-model odometry` | ライブodomによる予測（既定） |
+| `odom_topic:=/odom` | `--odom-topic /odom` | 車体基準の `nav_msgs/Odometry`。直接起動では省略時にrobot設定を使用 |
+| `odom_max_gap:=0.2` | `--odom-max-gap 0.2` | 画像を挟むodomの最大間隔（秒） |
+| `odom_noise:=0.1` | `--odom-noise 0.1` | 画像間の並進移動量に対する、経路方向の予測標準偏差の比率 |
+
+画像時刻へ補間したodom同士の相対移動を、一度ずつ反映する。
+地図は各ノードの `pose` から経路の位置関係を読み、経路に沿った距離座標へ展開する。
+内部では最大0.1m、最短ノード間隔の半分以下の間隔で途中位置も保持するため、
+小さな移動を積み重ねられる。各ノードへの確率を集約して従来と同じVPR観測更新を行う。
+サブゴールの切替では移動量をリセットしない。
+
+並進はその時点の車体向きから経路の進行方向へ投影する。
+画像間のyaw変化も保持するため、その場旋回や横への移動を単純な前進距離には加算しない。
+これは経路付近で追跡するモデルであり、任意の迂回路を地図化したり、
+経路外の状態を推定する仕組みではない。長時間のodom誤差や異なる視点でのVPR誤認は残り得る。
+
+odomは地図作成時と原点・親座標系が異なっていてもよいが、`child_frame_id` は地図と同じ車体基準が必要。
+VOも同じ条件の連続した入力を用意すればトピックを変更して使用できる。
+画像時刻の前後odomが揃うまでは新しい推定・経路をpublishせず待機する。外挿や従来モードへの自動切替は行わない。
+同じ画像時刻の反復はVPR・移動量とも二重反映しない。
+同じ座標系で1秒以内の短いodom欠損は、速度が正常なら連続した入力として扱う。
+欠損前後のodom差分で並進・yaw変化を反映し、地図と車体の向きの補正を保持する。
+ただし、画像時刻の補間には引き続き `odom_max_gap` を適用し、欠損区間を無理に補間しない。
+1秒を超える欠損（`odom_max_gap` を1秒より大きく設定した場合はその上限を超える欠損）、
+時刻巻き戻り・フレーム変更・明らかな並進ジャンプでは、
+自己位置の確率を残して次の画像でodom基準と向きの補正を取り直す。
+ジャンプ判定は隣接odomの速度が `max(3.0, 3*max_v)` m/sを超える場合。
+同じフレーム内の小さな補正やyawのみのリセットは自動検出できないため、連続したodomを使用する。
+
 ## 検証
 
 ROSをsourceしたコンテナ内で実行する。
@@ -135,6 +189,7 @@ ROSをsourceしたコンテナ内で実行する。
 ```bash
 cd /home/user/ws/src/PlaceNav
 python3 -B -m unittest discover -s tests -p test_topomap_odometry.py -v
+python3 -B -m unittest discover -s tests -p test_odometry_motion.py -v
 python3 -B tests/check_topomap_odometry_ros.py \
   --output "$(mktemp -d /tmp/topomap-odometry.XXXXXX)"
 ```

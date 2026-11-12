@@ -80,10 +80,14 @@ docker compose -f docker/unidepth-v2/compose.yaml logs --tail=30
 ROSコンテナ内で実行する。深度コンテナは `restart: unless-stopped` で継続稼働する。
 debug launch 自体はこのコンテナを起動しない。
 
+自己位置推定の移動更新はライブodomを使う `motion_model:=odometry` が既定。
+`node_odometry.json` のある地図を指定する。従来の画像マップには `motion_model:=legacy` を指定する。
+入力・調整項目は [オドメトリ付きマップ](../../doc/TOPOMAP_ODOMETRY.md) を参照する。
+
 ```bash
 roslaunch rwrc26_bringup navigation_debug.launch \
-  topomap_dir:=whill_short_route_adaptive_c2_tsukuba_3.5 \
-  bag:=/home/user/bagfiles/tsukuba/tsukuba_lidar.bag \
+  topomap_dir:=whill_odometry_tsukuba_3.5 \
+  bag:=/home/user/bagfiles/tsukuba/20261107_111825_777874.bag \
   bag_pause:=false
 ```
 
@@ -102,7 +106,7 @@ bagからC2画像、D435点群、odom、TFを再生し、C2深度・点群、Pla
 | `shrink_horizon_backup` | `true` | `TebLocalPlannerROS/shrink_horizon_backup` |
 | `global_frame` | `odom` | 点群gate・観測区間・コストマップ・TEB・経路adapter・RVizの共通フレーム |
 | `robot_base_frame` | `base_link` | gateの高さ基準・コストマップ・経路adapterの基準 |
-| `odom_topic` | `/odom` | TEBのodometry入力 |
+| `odom_topic` | `/odom` | TEBと、`motion_model:=odometry` 時のPlaceNavのodometry入力 |
 | `bridge_config` | ブリッジの`config/bridge.yaml` | 元launchの`config`に相当 |
 | `robot_cmd_vel_topic` | `/local_path/cmd_vel` | `drive_robot:=true`時の速度出力 |
 
@@ -125,9 +129,11 @@ bag記録のトピック一覧は自動改名しないため、トピックを�
 
 | launch引数 | 既定値 |
 |---|---|
-| `topomap_dir` | `whill_short_route_adaptive_c2_tsukuba_2.0` |
+| `topomap_dir` | `whill_odometry_tsukuba_3.5` |
 | `wp_model` / `pr_model` | `nomad` / `salad` |
 | `subgoal_mode` / `filter_mode` | `place_recognition` / `bayesian` |
+| `motion_model` | `odometry`。`legacy` で従来の移動更新 |
+| `odom_max_gap` / `odom_noise` | `0.2 s` / `0.1`。補間の最大間隔 / 並進量に対する予測標準偏差の比率 |
 | `window_radius` | `3` |
 | `start_node_idx` / `goal_node_idx` | `0` / `-1`（末尾） |
 | `lookahead` / `close_threshold` | `1` / `3` |

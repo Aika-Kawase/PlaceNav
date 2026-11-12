@@ -275,7 +275,7 @@ def parse_args(argv=None):
     parser.add_argument("--turn-distance", type=positive_float, default=0.15)
     parser.add_argument("--yaw-threshold", type=positive_float, default=0.12)
     parser.add_argument("--min-distance", type=positive_float, default=0.10)
-    parser.add_argument("--map-mode", choices=["legacy", "odometry"], default="legacy")
+    parser.add_argument("--map-mode", choices=["legacy", "odometry"], default="odometry")
     parser.add_argument("--odom-topic", help="nav_msgs/Odometry input; WHILL default: /odom")
     parser.add_argument("--odom-max-gap", type=positive_float, default=0.2,
                         help="Maximum bracketing odometry interval in seconds")
