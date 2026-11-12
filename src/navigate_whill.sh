@@ -25,6 +25,7 @@ usage()
       '  --pr-model cosplace|megaloc|salad|anyloc (default: cosplace)' \
       '  --wp-model gnm_large|vint|nomad (default: gnm_large)' \
       '  --motion-model legacy|odometry (default: odometry; requires node_odometry.json)' \
+      '  --subgoal-update nearest|passage (default: nearest; passage includes current-node recovery)' \
       '' \
       'Starts inference and the GUI visualization. Use --no-visualization to suppress the GUI.' \
       'Starts the GNM Path adapter. Use --no-path-adapter to suppress it.' \

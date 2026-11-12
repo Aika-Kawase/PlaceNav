@@ -48,6 +48,7 @@ class NavigationLaunchTest(unittest.TestCase):
         # Navigation intentionally uses latest; standalone bridge uses state_machine.
         self.assertEqual(params['/placenav_teb_bridge/reference_mode'], 'latest')
         self.assertEqual(params['/placenav_runner/motion_model'], 'odometry')
+        self.assertEqual(params['/placenav_runner/subgoal_update'], 'nearest')
         self.assertEqual(params['/placenav_runner/topomap_dir'], 'whill_odometry_tsukuba_3.5')
         self.assertEqual(params['/placenav_teb_bridge/path_timeout'], float(defaults['path_timeout']))
         self.assertEqual(params['/placenav_teb_bridge/TebLocalPlannerROS/shrink_horizon_backup'],
@@ -94,16 +95,21 @@ class NavigationLaunchTest(unittest.TestCase):
         self.assertEqual(params['/placenav_teb_bridge/cmd_vel_topic'], '/test/drive')
 
     def test_odometry_options_reach_runner_and_debug_bag_input(self):
-        _, params = self.load('odom_topic:=/vo/odom',
+        _, params = self.load('odom_topic:=/vo/odom', 'subgoal_update:=passage',
+                              'pass_threshold:=0.6', 'pass_confirmations:=3',
+                              'pass_local_mass:=0.9', 'final_goal_tolerance:=0.4',
                               'odom_max_gap:=0.15', 'odom_noise:=0.2')
         for key, value in dict(motion_model='odometry', odom_topic='/vo/odom',
-                               odom_max_gap=.15, odom_noise=.2).items():
+                               odom_max_gap=.15, odom_noise=.2, subgoal_update='passage',
+                               pass_threshold=.6, pass_confirmations=3,
+                               pass_local_mass=.9, final_goal_tolerance=.4).items():
             self.assertEqual(params['/placenav_runner/'+key], value)
         debug = ROOT/'launch/navigation_debug.launch'
         config = load_config_default([(str(debug), ['bag:=/tmp/example.bag',
-            'odom_topic:=/vo/odom', 'rviz:=false'])], 11311, verbose=False)
+            'subgoal_update:=passage', 'odom_topic:=/vo/odom', 'rviz:=false'])], 11311, verbose=False)
         self.assertIs(config.params['/use_sim_time'].value, True)
         self.assertEqual(config.params['/placenav_runner/motion_model'].value, 'odometry')
+        self.assertEqual(config.params['/placenav_runner/subgoal_update'].value, 'passage')
         import shlex
         player = next(n for n in config.nodes if n.name == 'navigation_bag_playback')
         topics = shlex.split(player.args)[shlex.split(player.args).index('--topics')+1:]

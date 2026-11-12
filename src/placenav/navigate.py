@@ -23,6 +23,7 @@ from place_recognition import extract_database
 from place_recognition.vpr_config import image_transform, database_signature
 from place_recognition.odometry_motion import OdometryHistory
 from placenav.topomap_odometry import OdomSample
+from placenav.subgoal_selector import ProgressSubgoalSelector
 
 import parser
 from utils import (to_numpy, load_model, read_image, get_image_transform,
@@ -256,6 +257,9 @@ class PlaceNavNode:
     def _setup_ros(self):
         self.obs_lock = Lock()
         self.odom_lock = Lock()
+        self.goal_selector = None
+        self._goal_reached = False
+        self._terminal_stop_sent = False
         # max_v is a command limit; a manually recorded bag may move faster.
         self.odom_history = OdometryHistory(
             self.odom_max_gap, max_speed=max(3., 3 * self.robot_config['max_v']))
@@ -285,20 +289,22 @@ class PlaceNavNode:
         self.goal_pub = rospy.Publisher(
             self.robot_config['reached_goal_topic'],
             Bool,
-            queue_size=1)
+            queue_size=1, latch=True)
+        self.stop_pub = rospy.Publisher(
+            self.robot_config['stop_topic'], Bool, queue_size=1, latch=True)
         
         self.viz_pub = rospy.Publisher(
             self.robot_config['toponav_viz_info_topic'],
             Viz,
             queue_size=1)
-        # # publish subgoal images
-        # self.subgoal_pub = rospy.Publisher(
-        #     "/toponav/subgoal_image",
-        #     Image,
-        #     queue_size=1,
-        #     latch=True
-        # )
-        # self._last_subgoal_idx = None
+        # publish subgoal images
+        self.subgoal_pub = rospy.Publisher(
+            "/toponav/subgoal_image",
+            Image,
+            queue_size=1,
+            latch=True
+        )
+        self._last_subgoal_idx = None
 
         self.localization_diagnostics_pub = rospy.Publisher(
             self.robot_config['localization_diagnostics_topic'],
@@ -306,11 +312,14 @@ class PlaceNavNode:
             queue_size=1)
 
         rospy.init_node("PlaceNavNode", anonymous=False)
+        rospy.on_shutdown(self.publish_terminal_stop)
         rospy.loginfo('Localization motion model=%s, odometry=%s',
                       self.motion_model, self.odometry_topic)
 
         
     def obs_callback(self, msg: Image):
+        if self._terminal_stop_sent:
+            return
         img = bridge.imgmsg_to_cv2(msg, desired_encoding="rgb8")
         vpr_img = self._vpr_transform(img).unsqueeze(0)
         with self.obs_lock:
@@ -325,6 +334,8 @@ class PlaceNavNode:
                 self.context_queue.append({'timestamp': msg.header.stamp, 'img': img, 'vpr_img': vpr_img})
 
     def odom_callback(self, msg: Odometry):
+        if self._terminal_stop_sent:
+            return
         q = msg.pose.pose.orientation
         expected = self.place_recognition_querier.motion.child_frame_id
         if (msg.child_frame_id != expected or
@@ -349,13 +360,26 @@ class PlaceNavNode:
             epoch = self.odom_history.epoch
         if sample is not None and epoch != self._last_odom_epoch:
             self.place_recognition_querier.reset_odometry()
+            if self.goal_selector is not None:
+                self.goal_selector.reset_confirmation()
             self._last_odom_epoch = epoch
         return sample
 
     def stop_callback(self, msg: Bool):
-        if msg.data:
+        if msg.data and not self._terminal_stop_sent:
             rospy.loginfo("Stopping...")
             rospy.signal_shutdown("shutdown")
+
+    def publish_terminal_stop(self):
+        """Send a terminal event before transports close; use wall time if paused."""
+        if self._terminal_stop_sent:
+            return
+        self._terminal_stop_sent = True
+        publisher = self.goal_pub if self._goal_reached else self.stop_pub
+        for _ in range(3):
+            self.waypoint_pub.publish(Float32MultiArray(data=[0., 0.]))
+            publisher.publish(Bool(data=True))
+            time.sleep(.05)
 
     def navigate(self, args: argparse.Namespace):
         rospy.loginfo("Starting navigation")
@@ -364,6 +388,13 @@ class PlaceNavNode:
         assert -1 <= args.goal_node_idx < self.map_size, "Invalid goal index"
         if args.goal_node_idx == -1:
             args.goal_node_idx = self.map_size - 1
+        if self.motion_model == 'odometry':
+            self.goal_selector = ProgressSubgoalSelector(
+                self.place_recognition_querier.motion, args.goal_node_idx,
+                mode=args.subgoal_update, lookahead=args.lookahead,
+                threshold=args.pass_threshold, confirmations=args.pass_confirmations,
+                min_local_mass=args.pass_local_mass,
+                final_tolerance=args.final_goal_tolerance)
 
         # Initialize iterative average calculation for runtime
         avg_runtime = 0
@@ -433,13 +464,28 @@ class PlaceNavNode:
                         raise ValueError(f"Filter mode {args.filter_mode} not recognized for subgoal mode {args.subgoal_mode}")
                     
                     # How many nodes ahead from closest node to choose the subgoal
-                    subgoal_idx = min(closest_node_idx + args.lookahead, args.goal_node_idx)
+                    if self.goal_selector is not None:
+                        previous_goal = self.goal_selector.subgoal
+                        subgoal_idx, reached_goal = self.goal_selector.update(
+                            closest_node_idx, current_obs_timestamp.to_nsec())
+                        if previous_goal != subgoal_idx:
+                            rospy.loginfo('Subgoal %s -> %s (%s, %s)', previous_goal,
+                                          subgoal_idx, self.goal_selector.status,
+                                          self.goal_selector.probabilities)
+                        if self.goal_selector.status == 'REMOTE_BELIEF':
+                            rospy.logwarn_throttle(5, 'Final goal held: belief outside goal neighborhood')
+                    else:
+                        subgoal_idx = min(closest_node_idx + args.lookahead, args.goal_node_idx)
+                        reached_goal = closest_node_idx == args.goal_node_idx
                     sg_img = self.topomap_images[subgoal_idx].to(self.device)
 
                     # Predict the waypoints to subgoal
-                    with torch.no_grad():
-                        _, waypoints = self.waypoint_model(context, sg_img)
-                    waypoints = to_numpy(waypoints[0])
+                    if reached_goal:
+                        waypoints = np.empty((0, 2))
+                    else:
+                        with torch.no_grad():
+                            _, waypoints = self.waypoint_model(context, sg_img)
+                        waypoints = to_numpy(waypoints[0])
 
                 elif args.subgoal_mode == 'temporal_distance':
                     if args.filter_mode == 'bayesian':
@@ -475,6 +521,7 @@ class PlaceNavNode:
                         # so we need to add 'start' to get the index in the topomap
                         closest_node_idx = start + closest_node
                         subgoal_idx = start + sg_idx
+                        reached_goal = closest_node_idx == args.goal_node_idx
                     else:
                         raise ValueError(f"Filter mode {args.filter_mode} not recognized for subgoal mode {args.subgoal_mode}")
                 else:
@@ -488,14 +535,12 @@ class PlaceNavNode:
                 # meters. Preserve legacy GNM behavior; scale only configured models.
                 waypoints[:, :2] *= self.waypoint_scale
 
-                # Check if the goal has been reached
-                reached_goal = closest_node_idx == args.goal_node_idx
-
                 # Publish the waypoint
-                chosen_waypoint = waypoints[args.target_waypoint_idx]
-                waypoint_msg = Float32MultiArray()
-                waypoint_msg.data = chosen_waypoint
-                self.waypoint_pub.publish(waypoint_msg)
+                if not reached_goal:
+                    chosen_waypoint = waypoints[args.target_waypoint_idx]
+                    waypoint_msg = Float32MultiArray()
+                    waypoint_msg.data = chosen_waypoint
+                    self.waypoint_pub.publish(waypoint_msg)
 
                 # Update the average runtime
                 loop_duration = time.time() - start_time
@@ -526,21 +571,23 @@ class PlaceNavNode:
                     self.localization_diagnostics_pub.publish(diagnostics_msg)
                 self.viz_pub.publish(viz_msg)
 
-                # # subgoal image publishing
-                # if subgoal_idx != self._last_subgoal_idx:
-                #     img_path = self.topomap_img_dir / self.topomap_filenames[subgoal_idx]
-                #     img = read_image(img_path)
+                # subgoal image publishing
+                if subgoal_idx != self._last_subgoal_idx:
+                    img_path = self.topomap_img_dir / self.topomap_filenames[subgoal_idx]
+                    img = read_image(img_path)
 
-                #     img_msg = bridge.cv2_to_imgmsg(img, encoding="rgb8")
-                #     img_msg.header.stamp = current_obs_timestamp
-                #     self.subgoal_pub.publish(img_msg)
+                    img_msg = bridge.cv2_to_imgmsg(img, encoding="rgb8")
+                    img_msg.header.stamp = current_obs_timestamp
+                    self.subgoal_pub.publish(img_msg)
 
-                #     self._last_subgoal_idx = subgoal_idx
+                    self._last_subgoal_idx = subgoal_idx
 
-                self.goal_pub.publish(reached_goal)
                 if reached_goal:
+                    self._goal_reached = True
+                    self.publish_terminal_stop()
                     rospy.loginfo("Reached goal. Stopping...")
                     return
+                self.goal_pub.publish(False)
                 
                 rate.sleep()
 
@@ -548,4 +595,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     placenav_node = PlaceNavNode(args)
-    placenav_node.navigate(args)
+    try:
+        placenav_node.navigate(args)
+        if placenav_node._goal_reached and not rospy.is_shutdown():
+            # Keep the terminal latch available to late/restarted bridge subscribers.
+            rospy.spin()
+    finally:
+        placenav_node.publish_terminal_stop()

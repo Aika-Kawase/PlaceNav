@@ -18,6 +18,7 @@
 #include <nav_msgs/Path.h>
 #include <ros/ros.h>
 #include <std_msgs/String.h>
+#include <std_msgs/Bool.h>
 #include <teb_local_planner/teb_local_planner_ros.h>
 #include <tf2/utils.h>
 #include <placenav_teb_bridge/retained_path.h>
@@ -84,12 +85,20 @@ public:
     retained_path_publisher_ = private_nh_.advertise<nav_msgs::Path>("retained_safe_path", 1, true);
     diagnostics_publisher_ = private_nh_.advertise<diagnostic_msgs::DiagnosticArray>("diagnostics", 1);
     path_subscriber_ = nh_.subscribe(path_topic_, 1, &PlaceNavTebBridge::pathCallback, this);
+    std::string goal_topic, stop_topic;
+    private_nh_.param<std::string>("goal_reached_topic", goal_topic, "/toponav/reached_goal");
+    private_nh_.param<std::string>("stop_topic", stop_topic, "/toponav/stop");
+    goal_subscriber_ = nh_.subscribe(goal_topic, 1, &PlaceNavTebBridge::goalCallback, this);
+    stop_subscriber_ = nh_.subscribe(stop_topic, 1, &PlaceNavTebBridge::stopCallback, this);
     teb_local_plan_subscriber_ = nh_.subscribe(
       teb_local_plan_topic_, 1, &PlaceNavTebBridge::tebLocalPlanCallback, this);
     control_timer_ = nh_.createTimer(
       ros::Duration(1.0 / controller_frequency_),
       &PlaceNavTebBridge::controlCallback,
       this);
+    terminal_stop_timer_ = nh_.createWallTimer(
+      ros::WallDuration(1.0 / controller_frequency_),
+      &PlaceNavTebBridge::terminalStopTick, this);
 
     publishState();
     ROS_INFO_STREAM(
@@ -128,6 +137,7 @@ private:
   void pathCallback(const nav_msgs::Path::ConstPtr& path)
   {
     std::lock_guard<std::mutex> lock(planner_mutex_);
+    if (navigation_stopped_) return;
     if (!validPath(*path, "GNM Path"))
     {
       invalidatePlan("INVALID_INPUT_PATH");
@@ -153,15 +163,45 @@ private:
 
   void tebLocalPlanCallback(const nav_msgs::Path::ConstPtr& path)
   {
+    std::lock_guard<std::mutex> lock(planner_mutex_);
+    if (navigation_stopped_) return;
     if (path->poses.size() < static_cast<std::size_t>(minimum_avoidance_plan_poses_) ||
         path->header.frame_id.empty())
     {
       return;
     }
 
-    std::lock_guard<std::mutex> lock(planner_mutex_);
     latest_teb_local_path_ = *path;
     has_latest_teb_local_path_ = true;
+  }
+
+  void terminalStop(const std::string& reason)
+  {
+    std::lock_guard<std::mutex> lock(planner_mutex_);
+    if (!navigation_stopped_)
+    {
+      navigation_stopped_ = true;
+      invalidatePlan(reason);
+      ROS_INFO_STREAM("Terminal navigation stop: " << reason << "; restart bridge to resume");
+    }
+    publishStop();
+    publishDiagnostics(stop_reason_, -1, "", geometry_msgs::Twist());
+  }
+
+  void goalCallback(const std_msgs::Bool::ConstPtr& message)
+  {
+    if (message->data) terminalStop("NAVIGATION_GOAL_REACHED");
+  }
+
+  void stopCallback(const std_msgs::Bool::ConstPtr& message)
+  {
+    if (message->data) terminalStop("NAVIGATION_STOP_REQUESTED");
+  }
+
+  void terminalStopTick(const ros::WallTimerEvent&)
+  {
+    std::lock_guard<std::mutex> lock(planner_mutex_);
+    if (navigation_stopped_) publishStop();
   }
 
   bool validPath(const nav_msgs::Path& path, const char* label) const
@@ -594,6 +634,12 @@ private:
   void controlCallback(const ros::TimerEvent&)
   {
     std::lock_guard<std::mutex> lock(planner_mutex_);
+    if (navigation_stopped_)
+    {
+      publishStop();
+      publishDiagnostics(stop_reason_, -1, "", geometry_msgs::Twist());
+      return;
+    }
     geometry_msgs::Twist command;
     if (pathExpired()) invalidatePlan("INPUT_TIMEOUT");
     if (retain_safe_path_) {retainedControl();return;}
@@ -668,6 +714,7 @@ private:
   std::unique_ptr<costmap_2d::Costmap2DROS> costmap_ros_;
   teb_local_planner::TebLocalPlannerROS teb_planner_;
   ros::Subscriber path_subscriber_;
+  ros::Subscriber goal_subscriber_, stop_subscriber_;
   ros::Subscriber teb_local_plan_subscriber_;
   ros::Publisher cmd_vel_publisher_;
   ros::Publisher active_path_publisher_;
@@ -680,6 +727,8 @@ private:
   ros::WallTime latest_path_wall_;
   double path_timeout_{0.};
   ros::Timer control_timer_;
+  ros::WallTimer terminal_stop_timer_;
+  bool navigation_stopped_{false};
   std::mutex planner_mutex_;
   std::string path_topic_;
   std::string teb_local_plan_topic_;

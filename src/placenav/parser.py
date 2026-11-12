@@ -21,6 +21,20 @@ def nonnegative_float(value):
         raise argparse.ArgumentTypeError('must be finite and nonnegative')
     return number
 
+
+def probability(value):
+    number = positive_float(value)
+    if number > 1:
+        raise argparse.ArgumentTypeError('must be in (0, 1]')
+    return number
+
+
+def positive_int(value):
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError('must be a positive integer')
+    return number
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description=f"PlaceNav node for topological image navigation"
@@ -142,6 +156,14 @@ def parse_args():
                         help='Maximum bracketing odometry interval in seconds')
     parser.add_argument('--odom-noise', type=nonnegative_float, default=0.1,
                         help='Along-route motion standard deviation / measured translation')
+    parser.add_argument('--subgoal-update', choices=['nearest', 'passage'], default='nearest',
+                        help='Keep nearest+lookahead or passage with current-node recovery')
+    parser.add_argument('--pass-threshold', type=probability, default=0.5)
+    parser.add_argument('--pass-confirmations', type=positive_int, default=2)
+    parser.add_argument('--pass-local-mass', type=probability, default=0.8,
+                        help='Required posterior mass on final goal and adjacent nodes')
+    parser.add_argument('--final-goal-tolerance', type=nonnegative_float, default=0.5,
+                        help='Final goal progress tolerance in meters (passage mode)')
     parser.add_argument(
         "--transition-model-window-lower",
         default=-1,
@@ -193,4 +215,7 @@ def parse_args():
             args.filter_mode != 'bayesian' or args.subgoal_mode != 'place_recognition'):
         parser.error('--motion-model odometry requires --filter-mode bayesian '
                      '--subgoal-mode place_recognition')
+    if args.subgoal_update == 'passage' and (
+            args.motion_model != 'odometry' or args.lookahead != 1):
+        parser.error('--subgoal-update passage requires --motion-model odometry --lookahead 1')
     return args

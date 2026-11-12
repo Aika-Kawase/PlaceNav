@@ -63,6 +63,22 @@ def navigation_command(params):
     command += ['--motion-model', motion,
                 '--odom-topic', str(params.get('odom_topic', '/odom')),
                 '--odom-max-gap', str(gap), '--odom-noise', str(noise)]
+    update = str(params.get('subgoal_update', 'nearest'))
+    if update not in ('nearest', 'passage'):
+        raise ValueError('subgoal_update must be nearest or passage')
+    if update == 'passage' and (motion != 'odometry' or int(params.get('lookahead', 1)) != 1):
+        raise ValueError('passage requires odometry and lookahead=1')
+    command += ['--subgoal-update', update]
+    for name, default in [('pass_threshold', .5), ('pass_local_mass', .8),
+                          ('final_goal_tolerance', .5)]:
+        value = float(params.get(name, default))
+        if not math.isfinite(value) or (value < 0 if name == 'final_goal_tolerance' else not 0 < value <= 1):
+            raise ValueError('Invalid '+name)
+        command += ['--'+name.replace('_', '-'), str(value)]
+    count = int(params.get('pass_confirmations', 2))
+    if count < 1:
+        raise ValueError('pass_confirmations must be positive')
+    command += ['--pass-confirmations', str(count)]
     size = params.get('img_size', [])
     if not isinstance(size, list) or (size and (len(size) != 2 or any(
             type(value) is not int or value <= 0 for value in size))):

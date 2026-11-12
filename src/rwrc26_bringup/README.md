@@ -134,6 +134,10 @@ bag記録のトピック一覧は自動改名しないため、トピックを�
 | `subgoal_mode` / `filter_mode` | `place_recognition` / `bayesian` |
 | `motion_model` | `odometry`。`legacy` で従来の移動更新 |
 | `odom_max_gap` / `odom_noise` | `0.2 s` / `0.1`。補間の最大間隔 / 並進量に対する予測標準偏差の比率 |
+| `subgoal_update` | `nearest`。`passage` で画像ゴールを記録位置の通過まで保持（odom、lookahead=1） |
+| `pass_threshold` / `pass_confirmations` | `0.5` / `2`。通過確率のしきい値 / 連続した新規画像数 |
+| `pass_local_mass` | `0.8`。最終到達時に終点と隣接ノードの所属区間に必要な全体確率 |
+| `final_goal_tolerance` | `0.5 m`。passageの最終到達を判定する経路進捗の許容幅 |
 | `window_radius` | `3` |
 | `start_node_idx` / `goal_node_idx` | `0` / `-1`（末尾） |
 | `lookahead` / `close_threshold` | `1` / `3` |
@@ -150,7 +154,14 @@ bag記録のトピック一覧は自動改名しないため、トピックを�
 `navigate_whill.sh`と`src/config`の設定を使用する。
 `image_topic`は深度adapterの入力を指定する。PlaceNavのカメラ入力は`config/robots.yaml`で設定する。
 別の配置では`placenav_src`を実際の`navigate_whill.sh`があるディレクトリに変更する。
-`navigate_whill.sh`には経路adapterのフレーム指定だけを追加し、推論・目標選択ロジックは変更していない。
+サブゴール保持は `subgoal_update:=passage` で選択する。初回画像は即座に出し、
+VPR・Bayesianフィルタは共通。詳細は [オドメトリの説明](../../doc/TOPOMAP_ODOMETRY.md) を参照。
+中間ゴールの出力候補が推定現在ノードかその次から外れた場合は、
+「推定現在ノード＋1」（指定終点が上限）に選び直す。
+この救済は自己位置beliefを変更せず、追加のVPR推論も行わない。
+最終到達後はPlaceNavの推論を止め、到達通知を保持するためROSノードは存続する。
+TEBの終端停止は全モード共通で、遅れた経路・False通知では再開しない。
+次の走行はlaunch全体を再起動する。
 
 ## コストマップ・記録・表示
 

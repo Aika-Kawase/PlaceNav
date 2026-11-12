@@ -67,6 +67,10 @@ PlaceNavをROS 1 Noetic環境でWHILLへ統合し、つくばチャレンジに�
 地図生成はオドメトリ付きJSONを保存するモードが既定です。
 ナビゲーションも `place_recognition + bayesian + odometry` が既定で、
 ライブodomを自己位置推定の移動更新に使用します。
+画像ゴールの選択は従来の `subgoal_update:=nearest` が既定です。
+`subgoal_update:=passage` で、記録位置の通過確率で画像を進める方式を試せます。
+画像ゴールが推定現在ノードかその次から外れた場合は、現在ノード＋1へ選び直します。
+最終到達・停止通知を受けたTEBは全モードでゼロ速度を維持します。
 
 オドメトリ付きノード情報をJSONへ保存する新モード、距離指定、bagからの生成手順は
 [オドメトリ付きトポロジカルマップ](doc/TOPOMAP_ODOMETRY.md)を参照してください。

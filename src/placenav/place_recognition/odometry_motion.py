@@ -132,6 +132,15 @@ class OdometryMotionModel:
         return np.bincount(self.owner, weights=self.probability,
                            minlength=len(self.node_s))
 
+    def progress_probabilities(self, node_idx, tolerance=0.5):
+        """Read global posterior mass; do not renormalize a local selection."""
+        position = self.node_s[node_idx]
+        return {
+            'passed': float(self.probability[self.grid_s >= position].sum()),
+            'near': float(self.probability[np.abs(self.grid_s - position) <= tolerance].sum()),
+            'local': float(self.probability[np.abs(self.owner - node_idx) <= 1].sum()),
+        }
+
     def predict(self, sample):
         if sample.child_frame_id != self.child_frame_id:
             raise ValueError("Live odometry child frame differs from topomap body frame")

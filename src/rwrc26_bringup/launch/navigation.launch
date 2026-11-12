@@ -14,6 +14,11 @@
   <arg name="motion_model" default="odometry"/>
   <arg name="odom_max_gap" default="0.2"/>
   <arg name="odom_noise" default="0.1"/>
+  <arg name="subgoal_update" default="nearest"/>
+  <arg name="pass_threshold" default="0.5"/>
+  <arg name="pass_confirmations" default="2"/>
+  <arg name="pass_local_mass" default="0.8"/>
+  <arg name="final_goal_tolerance" default="0.5"/>
   <arg name="window_radius" default="3"/>
   <arg name="start_node_idx" default="0"/>
   <arg name="goal_node_idx" default="-1"/>
@@ -120,6 +125,11 @@
     <param name="odom_topic" value="$(arg odom_topic)"/>
     <param name="odom_max_gap" value="$(arg odom_max_gap)" type="double"/>
     <param name="odom_noise" value="$(arg odom_noise)" type="double"/>
+    <param name="subgoal_update" value="$(arg subgoal_update)"/>
+    <param name="pass_threshold" value="$(arg pass_threshold)" type="double"/>
+    <param name="pass_confirmations" value="$(arg pass_confirmations)" type="int"/>
+    <param name="pass_local_mass" value="$(arg pass_local_mass)" type="double"/>
+    <param name="final_goal_tolerance" value="$(arg final_goal_tolerance)" type="double"/>
     <param name="window_radius" value="$(arg window_radius)"/>
     <param name="start_node_idx" value="$(arg start_node_idx)"/>
     <param name="goal_node_idx" value="$(arg goal_node_idx)"/>

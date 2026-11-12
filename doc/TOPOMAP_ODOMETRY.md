@@ -148,8 +148,8 @@ roslaunch rwrc26_bringup navigation_debug.launch \
 `sliding_window` や `temporal_distance` を使う場合も `--motion-model legacy` を明示する。
 launchの既定地図は `whill_odometry_tsukuba_3.5`。別の地図は `topomap_dir` で指定する。
 地図画像と対応する `node_odometry.json` が必要で、不足時は起動エラーになる。
-VPRの観測尤度、`closest_node + lookahead` によるサブゴール選択、
-NoMaD/GNM・TEBの処理は変更しない。サブゴール保持・再探索モードは追加しない。
+VPRの観測尤度、移動更新、観測更新用の中点境界 `owner` は共通。
+画像サブゴールの選択は、従来方式と下記の保持方式を切り替えられる。
 
 | launch引数 | 直接起動の引数 | 意味 |
 |---|---|---|
@@ -182,6 +182,76 @@ VOも同じ条件の連続した入力を用意すればトピックを変更し
 ジャンプ判定は隣接odomの速度が `max(3.0, 3*max_v)` m/sを超える場合。
 同じフレーム内の小さな補正やyawのみのリセットは自動検出できないため、連続したodomを使用する。
 
+## 画像サブゴールの通過判定と置き去り救済
+
+```bash
+roslaunch rwrc26_bringup navigation_debug.launch \
+  topomap_dir:=whill_odometry_tsukuba_3.5 \
+  subgoal_update:=passage \
+  bag:=/home/user/bagfiles/tsukuba/20261107_111825_777874.bag \
+  bag_pause:=false
+```
+
+既定の `subgoal_update:=nearest` は、従来どおり毎画像の
+`min(closest_node_idx + lookahead, goal_node_idx)` を使う。
+最終到達も従来どおり `closest_node_idx == goal_node_idx` で判定する。
+`passage` は `motion_model:=odometry`、`lookahead:=1` の場合に選択できる。
+直接起動では `--subgoal-update passage` を指定する。
+
+初回は従来と同じ画像をすぐ出す。全探索のbeliefが安定するまで待つ処理は追加しない。
+その後は画像ゴールIDを保持し、目標 `g` の記録位置に対する
+`P(s >= node_s[g]) = sum(probability[grid_s >= node_s[g]])` が
+`pass_threshold` 以上の新規画像を `pass_confirmations` 回連続で確認すると、
+ゴールを一つ進める。中点で最寄りノードが変わっても、それだけでは画像を切り替えない。
+失敗した画像では連続回数をクリアする。同じ画像時刻は二重に数えず、
+odom基準の取り直しや画像時刻の巻き戻りでも確認回数をクリアする。
+ゴール切り替えでbeliefやodom積算はリセットしない。
+
+中間ゴールは、出力する直前に置き去り・先行の救済を行う。
+Bayesianフィルタの推定現在ノードを `v`、通常の通過判定で作ったゴール候補を `g` とする。
+
+| ゴール候補 | 出力 |
+|---|---|
+| `g == v` または `g == v+1` | 通常候補を維持 |
+| `g < v` または `g > v+1` | `v+1` に選び直す（`RECOVERED`） |
+
+救済先と比較範囲は指定した最終ノードを上限にする。救済で確認回数をクリアし、
+その画像だけで新しい最終ゴールに到達したことにはしない。
+通過条件を満たさない画像でもこの救済を適用するため、短い欠損や密なノード区間で
+画像ゴールだけが取り残された場合に追従できる。後ろへの選び直しも許可する。
+通過判定で一つ進めた候補も出力前に確認し、戻した直後に同じbeliefで進め直す往復を抑える。
+
+中間ゴールの「目標±1ノードに確率80%以上」という更新禁止条件は使用しない。
+通過確率と確認回数は既定の `0.5` / `2` を維持する。
+救済には生のVPR最尤ノードではなく、既存のBayesian現在ノードを使い、追加推論は行わない。
+自己位置beliefやodom積算は変更しないため、推定現在ノード自体の誤認識を直す機能ではない。
+現在ノードが飛ぶ場合は、画像ゴールもその推定に追従し得る。
+
+| launch引数 | CLI引数 | 既定値・意味 |
+|---|---|---|
+| `subgoal_update` | `--subgoal-update` | `nearest` / `passage` |
+| `pass_threshold` | `--pass-threshold` | `0.5`。全体の事後確率に対するしきい値 |
+| `pass_confirmations` | `--pass-confirmations` | `2`。条件を満たす連続した新規画像数 |
+| `pass_local_mass` | `--pass-local-mass` | `0.8`。最終到達判定で、終点と隣接ノードの所属区間に必要な確率 |
+| `final_goal_tolerance` | `--final-goal-tolerance` | `0.5 m`。passageの最終目標の経路進捗に対する許容幅 |
+
+最終ノードでは進捗グリッドが終端で切れるため、通常の通過確率ではなく
+`P(abs(s - node_s[final]) <= final_goal_tolerance)` を使う。
+同じ確率しきい値・連続画像数に加え、終点と隣接ノードの所属区間に
+`pass_local_mass` 以上の確率があることを要求して終了する。
+最終到達の確率・近傍・連続確認の条件は従来のpassageから維持する。
+最終到達が成立した後は救済を行わず、到達・停止状態を保持する。
+この最終判定は `passage` で使用し、最寄りノードが末尾に変わっただけでは終了しない。
+途中ノードを最終目標に指定した場合も、遠く通り越した位置では終了扱いにしない。
+許容幅は経路上の進捗の幅であり、車体と撮影位置の二次元距離の保証ではない。
+`subgoal_update:=nearest` と `motion_model:=legacy` の最終判定は従来どおり。
+
+最終到達時は新しい非ゼロwaypointを出さず、到達Boolとゼロwaypointを送る。
+推論は終了するがROSノードは存続し、到達通知をlatched publisherで保持する。
+TEBは到達／停止通知で全経路を無効化し、壁時計タイマーでもゼロ速度を送り続けるため、
+bagを一時停止しても終端停止を維持する。遅れたPathやFalse通知では解除しない。
+この停止処理はlegacy・nearest・passageに共通。次の走行はlaunch全体を再起動する。
+
 ## 検証
 
 ROSをsourceしたコンテナ内で実行する。
@@ -190,6 +260,7 @@ ROSをsourceしたコンテナ内で実行する。
 cd /home/user/ws/src/PlaceNav
 python3 -B -m unittest discover -s tests -p test_topomap_odometry.py -v
 python3 -B -m unittest discover -s tests -p test_odometry_motion.py -v
+python3 -B -m unittest discover -s tests -p test_subgoal_selector.py -v
 python3 -B tests/check_topomap_odometry_ros.py \
   --output "$(mktemp -d /tmp/topomap-odometry.XXXXXX)"
 ```
@@ -198,3 +269,15 @@ python3 -B tests/check_topomap_odometry_ros.py \
 画像時刻補間、旋回、保存を飛ばした場合の差分、逐次JSON保存、
 既存マップ保護、従来CLI／形式、別トピック入力、欠損と座標系変更を確認する。
 通常のROS masterや実機の制御トピックには接続しない。
+
+TEBをビルド後、専用masterで終端停止を確認できる。
+実機ドライバは起動せず、そのmaster上の `/local_path/cmd_vel` を監視する。
+
+```bash
+python3 -B tests/check_navigation_stop_ros.py \
+  --bridge /home/user/ws/install/placenav_teb_bridge/lib/placenav_teb_bridge/placenav_teb_bridge_node \
+  --output "$(mktemp -d /tmp/navigation-stop.XXXXXX)"
+```
+
+TEBのlatest・state_machine・保持パス、直接PD制御で、非ゼロ速度からの停止を確認する。
+時計停止、遅れた入力、False通知、到達後に起動したTEBへのlatched通知も確認する。

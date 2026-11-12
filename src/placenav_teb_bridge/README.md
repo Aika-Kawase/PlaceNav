@@ -84,6 +84,15 @@ wall-clock time since receipt of a valid input path, checked before/after TEB on
 control timer ticks. This is not image-age validation or an independent watchdog:
 when simulated time is paused, ROS timer callbacks also pause.
 
+Terminal navigation stop is independent of `reference_mode`, `retain_safe_path`,
+and `path_timeout`. A true Bool on `/toponav/reached_goal` or `/toponav/stop`
+clears all input, active, avoidance and retained paths and immediately publishes
+zero velocity. A wall timer continues publishing zero even when `/clock` pauses.
+Late paths and false Bool messages cannot resume navigation; restart the bridge
+with the navigation launch for the next run. Private parameters `goal_reached_topic`
+and `stop_topic` can change these input topic names. PlaceNav keeps the final
+completion publisher alive and latched after inference ends.
+
 Common fixes applied to both modes for a fair comparison:
 - Empty/invalid input clears the active/reference/avoidance plans and publishes a
   stop instead of retaining the last valid command guidance.
@@ -100,6 +109,8 @@ This `diagnostic_msgs/DiagnosticArray` is published on each controller tick:
 - `message`: `NO_INPUT_PATH`, `INVALID_INPUT_PATH`, `INPUT_TIMEOUT`,
   `ROBOT_TF_UNAVAILABLE`, `SET_PLAN_REJECTED`, `GOAL_REACHED`, `TEB_FAILED`,
   `NONFINITE_COMMAND`, `TEB_ZERO_COMMAND`, or `COMMAND_VALID`.
+  Terminal events report `NAVIGATION_GOAL_REACHED` or `NAVIGATION_STOP_REQUESTED`
+  immediately as well as on subsequent controller ticks.
 - `teb_outcome` / `teb_message`: TEB's public return code and explanation.
   It distinguishes plan-transform failure, no local plan, infeasible trajectory,
   and invalid velocity when TEB supplies an explanation. Some failures (such as

@@ -76,6 +76,8 @@ PY
                       transition_model_window_lower=-2, transition_model_window_upper=4,
                       filter_delta=12, recompute_place_recognition_db=True, img_size=[96, 96],
                       motion_model='odometry', odom_topic='/vo/odom', odom_max_gap=.15, odom_noise=.2,
+                      subgoal_update='nearest', pass_threshold=.6, pass_confirmations=3,
+                      pass_local_mass=.9, final_goal_tolerance=.4,
                       global_frame='test_odom', robot_base_frame='test_base', diagnostics=True)
         command, _ = runner.navigation_command(params)
         self.assertNotIn('--trace-navigation', command)
@@ -90,14 +92,20 @@ PY
         for key in ('topomap_dir', 'start_node_idx', 'goal_node_idx', 'lookahead', 'nomad_seed',
                     'close_threshold', 'target_waypoint_idx', 'device', 'transition_model_window_lower',
                     'transition_model_window_upper', 'filter_delta', 'recompute_place_recognition_db', 'img_size',
-                    'motion_model', 'odom_topic', 'odom_max_gap', 'odom_noise'):
+                    'motion_model', 'odom_topic', 'odom_max_gap', 'odom_noise',
+                    'subgoal_update', 'pass_threshold', 'pass_confirmations',
+                    'pass_local_mass', 'final_goal_tolerance'):
             self.assertEqual(getattr(args, key), params[key], key)
 
     def test_invalid_motion_options_are_rejected(self):
         directory = self.root/'PlaceNav'; directory.mkdir(); (directory/'navigate_whill.sh').touch()
         for options in ({'motion_model': 'typo'}, {'odom_max_gap': 0},
                         {'odom_max_gap': float('nan')}, {'odom_noise': -1},
-                        {'odom_noise': float('inf')}):
+                        {'odom_noise': float('inf')}, {'subgoal_update': 'typo'},
+                        {'pass_threshold': 1.1}, {'pass_confirmations': 0},
+                        {'pass_local_mass': float('nan')}, {'final_goal_tolerance': -1},
+                        {'subgoal_update': 'passage', 'motion_model': 'legacy'},
+                        {'subgoal_update': 'passage', 'lookahead': 2}):
             with self.subTest(options=options), self.assertRaises(ValueError):
                 runner.navigation_command(dict(placenav_src=str(directory), topomap_dir='route', **options))
 
