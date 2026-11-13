@@ -1,91 +1,85 @@
 # Jetson AGX Xavier への PlaceNav 推論環境の導入
 
 Xavier はインターネットに接続しない前提。必要なものはすべて parrot（インターネット接続あり）で用意し、
-USB（書き込み）と parrot–Xavier 間の有線 LAN（`192.168.1.146` ↔ `192.168.1.246`）で渡す。
+parrot–Xavier 間の有線 LAN（`192.168.1.146` ↔ `192.168.1.246`）で渡す。
+
+**現在の方針: Xavier の OS（JetPack 5.0.2 / L4T R35.1）と既存の Docker には手を付けない。**
+eMMC には既存の環境があり空きも 3 GB しかないため、PlaceNav 用の Docker デーモンを別に立て、
+イメージとデータは追加した NVMe SSD（`/mnt/ssd`）に置く。
 
 ```
-parrot (x86, Internet)                         Xavier (AGX, JetPack 5.1.2, offline)
- 10 BSP/rootfs 取得 ─┐
- 20 rootfs 作り込み ─┼─ USB-C ── 30 書き込み ──▶ L4T R35.4.1 + Docker + nvidia runtime
- 40 arm64 イメージ ──┘                           + chrony(parrot) + 固定IP + ユーザ
- 50 配布 ───────────── LAN ──────────────────▶ docker load / ~/PlaceNav (src, 重み, topomap)
-                                                 run_xavier.sh → bench / navigate
+parrot (x86, Internet)                          Xavier (JetPack 5.0.2 のまま, offline)
+ 40 arm64 イメージ作成 ─┐                        docker.service（既存, eMMC）… 変更しない
+ 45 runtime deb 取得 ───┼── LAN ── 45 で導入 ──▶ fstab に SSD / nvidia-container-toolkit
+                        │                         docker-placenav.service（SSD, 別ソケット）
+ 50 配布 ───────────────┘── LAN ──────────────▶ /mnt/ssd/PlaceNav (src, 重み, topomap)
+                                                  run_xavier.sh → bench / navigate
 ```
 
 | 項目 | 内容 |
 |---|---|
-| JetPack | 5.1.2 = Jetson Linux R35.4.1（Xavier 対応の最終系列）。sha256 は `common.sh` に固定 |
-| 推論イメージ | `dustynv/l4t-pytorch:r35.4.1`（digest 固定）: Ubuntu 20.04, CUDA 11.4, **PyTorch 2.0.0**, torchvision 0.15.1（sm_72 ビルド済み）+ ROS Noetic（rospy/msgs/cv_bridge のみ） |
-| ホスト側に入るもの | docker.io, nvidia-container（JetPack 5.1.2 版）, chrony。CUDA 等はイメージ内にあるのでホストには入れない |
-| 設定値 | IP・ユーザ名・ホスト名は `common.sh`。環境変数で上書き可 |
+| 推論イメージ | `dustynv/l4t-pytorch:r35.4.1`（digest 固定）: Ubuntu 20.04, CUDA 11.4, **PyTorch 2.0.0**, torchvision 0.15.1（sm_72）+ ROS Noetic（rospy/msgs/cv_bridge のみ） |
+| Xavier に追加するもの | `/etc/fstab` に SSD 1 行、NVIDIA コンテナ runtime の deb 4 つ（R35.1 用、`nvidia-docker2` は入れない）、`/etc/docker/placenav-daemon.json`、`docker-placenav.service` |
+| 変更しないもの | 既存の `docker.service`、`/etc/docker/daemon.json`（存在しない）、eMMC 上のイメージ・コンテナ |
+| PlaceNav 用 Docker | ソケット `unix:///run/docker-placenav.sock`、データ `/mnt/ssd/docker-placenav`、containerd 名前空間 `placenav`、既定 runtime nvidia |
+| 設定値 | IP・ユーザ名・パスは `common.sh`。環境変数で上書き可 |
 
-## 前提
-
-- parrot: sudo 可能、インターネット接続あり、空き容量 30 GB 程度（BSP+rootfs 展開 約 10 GB、イメージ tar 数 GB）。
-  R35.4.1 の書き込みホストは公式には Ubuntu 18.04/20.04。22.04 でも通常動くが公式外。
-- parrot–Xavier 間 LAN の parrot 側が `192.168.1.146/24` で設定済みであること。
-- USB-C ケーブル（Xavier 前面の USB-C ↔ parrot）。
-- **書き込みで Xavier の eMMC は全消去される。**
-
-## 手順
-
-すべて parrot 上、このディレクトリ（`PlaceNav/docker/xavier`）で実行する。作業ディレクトリは既定で `~/xavier_jp512`。
+## 手順（parrot 上、このディレクトリで実行）
 
 ```bash
-./10_download_bsp.sh          # BSP と sample rootfs（計 2.2 GB）を取得し sha256 を確認
-sudo ./20_prepare_rootfs.sh   # 展開・apply_binaries・ユーザ作成・Docker 等を qemu chroot で導入（パスワードを聞かれる）
-# Xavier をリカバリモードにする: 電源 OFF → 中央の Force Recovery ボタンを押したまま電源 ON → 2 秒後に離す
-sudo ./30_flash.sh            # 'flash' と入力すると書き込み（十数分）
+./40_build_image.sh    # linux/arm64 を qemu でビルド（コンパイルなし、数十分）→ ~/xavier_jp512/placenav-xavier.tar.gz
+./45_setup_xavier.sh   # deb 取得（sha256 確認）→ Xavier へ転送 → Xavier で sudo 実行（パスワードを聞かれる）
+./50_deploy.sh         # PlaceNav 用 Docker へイメージ読込（未読込時のみ）と src/・docker/ を /mnt/ssd/PlaceNav へ rsync
 ```
 
-初回起動後（parrot から）:
-
-```bash
-ssh amsl@192.168.1.246 'sudo nvpmodel -m 0 && sudo jetson_clocks'   # MAXN（nvpmodel は再起動後も保持）
-```
-
-`jetson_clocks` は再起動で戻るので、計測や走行の前に毎回実行する。
-
-### 時刻同期（parrot 側、初回のみ）
-
-Xavier の chrony は parrot だけを参照する。parrot で chrony を時刻サーバにする:
-
-```bash
-sudo apt-get install -y chrony
-printf 'allow 192.168.1.0/24\nlocal stratum 10\n' | sudo tee -a /etc/chrony/chrony.conf
-sudo systemctl restart chrony
-# Xavier 側で確認: ssh amsl@192.168.1.246 chronyc tracking
-```
-
-### 推論イメージと PlaceNav の配布
-
-```bash
-./40_build_image.sh   # linux/arm64 を qemu でビルド（コンパイルなし、数十分）→ ~/xavier_jp512/placenav-xavier.tar.gz
-./50_deploy.sh        # イメージ読込（未読込時のみ）と src/・docker/ の rsync（重み・topomap を含む）
-```
+`45_setup_xavier.sh` の最後に、PlaceNav 用 Docker の情報（`root=/mnt/ssd/docker-placenav`, `default=nvidia`）と、
+既存 Docker が変わっていないこと（`active`, root `/var/lib/docker`）が表示される。
 
 `50_deploy.sh` は parrot 上の `src/model_weights` と `src/topomaps` をそのまま送る。
 **先に parrot 側で使うモデルの準備（`prepare_waypoint.py`, `prepare_vpr.py`, 重みのダウンロード）を済ませておくこと。**
-`global-feats-*.h5` は送らず、Xavier 上で初回起動時に作り直す（GPU/torch の差で特徴量が変わるため）。
+`global-feats-*.h5` は送らず、Xavier 上で初回起動時に作り直す。
 
-### 推論時間の計測（Xavier 上）
+### 動作確認と推論時間の計測（Xavier 上）
 
 ```bash
 ssh amsl@192.168.1.246
-~/PlaceNav/docker/xavier/run_xavier.sh python3 bench_inference.py \
+sudo jetson_clocks   # 計測・走行前に毎回（再起動で戻る）。電力モードは sudo nvpmodel -q で確認
+/mnt/ssd/PlaceNav/docker/xavier/run_xavier.sh python3 -c \
+    "import torch; print(torch.__version__, torch.cuda.is_available()); print(torch.randn(2, device='cuda').sum())"
+/mnt/ssd/PlaceNav/docker/xavier/run_xavier.sh python3 bench_inference.py \
     --pr-models cosplace salad megaloc --wp-models omnivla_edge nomad gnm_large
 ```
 
 5 Hz で回すには VPR + ウェイポイント推論の合計が 200 ms を十分下回る必要がある。
-この結果を見て Xavier に載せるモデルを決める。
+この結果を見て Xavier に載せるモデルを決める。PlaceNav 用 Docker を手で使うときは
+`docker -H unix:///run/docker-placenav.sock ...`（既定の `docker` は既存のデーモンを指す）。
+
+### 元に戻す
+
+```bash
+sudo systemctl disable --now docker-placenav
+sudo rm /etc/systemd/system/docker-placenav.service /etc/docker/placenav-daemon.json
+sudo rm -rf /mnt/ssd/docker-placenav /mnt/ssd/PlaceNav
+# 必要なら: /etc/fstab の SSD の行を削除（バックアップ /etc/fstab.before-placenav.* あり）
+# 必要なら: sudo dpkg -r nvidia-container-toolkit libnvidia-container-tools libnvidia-container1 libnvidia-container0
+```
 
 ## 未検証・注意点
 
-- 本ディレクトリのスクリプトは parrot と実機 Xavier ではまだ一度も実行していない（作成した PC では sudo も Xavier も使えなかった）。
-  確認済みなのは、ダウンロード元の存在と sha256、BSP 内のスクリプト名・オプション、rootfs の内容、aarch64 wheel の有無、計測スクリプトの x86 での動作のみ。
+- **R35.4.1 用のイメージを R35.1 のホストで動かす**（CUDA 11.4 は共通、ドライバはホストのものを使用）。
+  互換性の見込みはあるが未確認。上の `torch.cuda.is_available()` が `False` やエラーになる場合はベースイメージの変更が必要。
+- スクリプトは parrot と実機 Xavier ではまだ実行していない。確認済みは、ダウンロード元と sha256、
+  `nvidia-container-toolkit` の deb の中身（インストール時に Docker 設定を触らない）、`placenav-daemon.json` の
+  `dockerd --validate`（Docker 29.8 で）、aarch64 wheel の有無、計測スクリプトの x86 での動作のみ。
 - イメージの PyTorch は 2.0.0（x86 イメージは 2.1.2）。x86 で書き出した VPR の TorchScript（`model_weights/vpr/*.pt`）を
-  2.0 で読めない場合は、Xavier 上で `prepare_vpr.py --model <名前>` を再実行して書き出し直す。
-  その場合、上流ソース（`model_weights/vpr/sources`）と重みのキャッシュが Xavier 側にも必要（Xavier はダウンロードできない）。
+  2.0 で読めない場合は、Xavier 上で `prepare_vpr.py --model <名前>` を再実行して書き出し直す
+  （上流ソースと重みのキャッシュも Xavier に必要）。
 - `navigate.py` を Xavier で動かしてロボットを走らせるには、別途 `navigation.launch` の分割（parrot 側で
   `navigate.py` を起動しない）、カメラ画像の縮小・間引き、`path_timeout:=1.0` の必須化が必要。未実装。
-- eMMC は 32 GB。イメージ（数 GB）・重み・topomap を置くと余裕は大きくない。
+
+## 参考: Xavier を消去して JetPack 5.1.2 を書き込む場合（現在は使わない）
+
+既存環境を消してよくなった場合のみ。`10_download_bsp.sh` → `sudo 20_prepare_rootfs.sh` →
+（USB-C で接続しリカバリモードにして）`sudo 30_flash.sh`。**eMMC は全消去される。**
+書き込み後は既定の Docker が nvidia runtime を持つため、`45_setup_xavier.sh` は使わず、
+`PLACENAV_DOCKER_HOST=unix:///var/run/docker.sock XAVIER_PLACENAV_DIR=/home/amsl/PlaceNav ./50_deploy.sh` のように既定の Docker を指定する。

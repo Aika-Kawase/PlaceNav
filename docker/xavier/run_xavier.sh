@@ -8,7 +8,7 @@ PLACENAV_DIR=$(cd "$(dirname "$0")/../.." && pwd)
 
 interactive=()
 [[ -t 0 ]] && interactive=(-it)
-exec docker run --rm "${interactive[@]}" --runtime nvidia --network host --ipc host \
+exec docker -H "${PLACENAV_DOCKER_HOST}" run --rm "${interactive[@]}" --runtime nvidia --network host --ipc host \
     -v "${PLACENAV_DIR}:/placenav" \
     -e "ROS_MASTER_URI=http://${PARROT_IP}:11311" -e "ROS_IP=${XAVIER_IP}" \
     "${IMAGE}" "$@"
